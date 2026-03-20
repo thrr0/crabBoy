@@ -19,7 +19,22 @@ impl CPU {
 
     fn decode_execute(&mut self, opcode: u8) {
         match opcode {
+            //NOP
             0x00 => {}
+            // ADD
+            0x80 => {
+                let (resultado_a, hubo_carry) = self.registers.a.overflowing_add(self.registers.b);
+
+                //flags
+                self.registers.f.zero = resultado_a == 0;
+                self.registers.f.subtract = false;
+                self.registers.f.carry = hubo_carry;
+                self.registers.f.half_carry =
+                    (self.registers.a & 0x0F) + (self.registers.b & 0x0F) > 0x0F;
+
+                //a register
+                self.registers.a = resultado_a;
+            }
             _ => {
                 panic!("opcode no implementado: {:#04x}", opcode);
             }
