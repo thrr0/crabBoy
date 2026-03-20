@@ -1,5 +1,6 @@
 mod cpu;
-pub mod memory;
+mod memory;
+
 fn main() {
     println!("Hello, world!");
 }
