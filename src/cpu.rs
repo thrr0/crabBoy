@@ -26,9 +26,18 @@ impl CPU {
         match opcode {
             //NOP
             0x00 => {}
+            //DEC L
+            0x2D => self.registers.l = self.dec(self.registers.l),
+            //LD (HL-), A
+            0x32 => {
+                self.memory_bus
+                    .write(self.registers.get_hl(), self.registers.a);
+                self.registers
+                    .set_hl(self.registers.get_hl().wrapping_sub(1));
+            }
             //INC
             0x3C => self.registers.a = self.inc(self.registers.a),
-            // ADD
+            // ADD A
             0x80 => self.add(self.registers.b),
             0x81 => self.add(self.registers.c),
             0x82 => self.add(self.registers.d),
@@ -37,38 +46,90 @@ impl CPU {
             0x85 => self.add(self.registers.l),
             0x86 => self.add(self.memory_bus.read(self.registers.get_hl())),
             0x87 => self.add(self.registers.a),
+            //SBC A
+            0x9A => self.registers.a = self.sbc(self.registers.d),
+            0x9E => self.registers.a = self.sbc(self.memory_bus.read(self.registers.get_hl())),
+            //OR A, E
+            0xB3 => {
+                self.registers.a = self.or(self.registers.e);
+            }
+            //JUMP
             0xC3 => {
                 let low_byte = self.fetch();
                 let high_byte = self.fetch();
                 self.registers.pc = (high_byte as u16) << 8 | low_byte as u16;
             }
+            //RET
+            0xC9 => {
+                let low_byte = self.memory_bus.read(self.registers.sp);
+                self.registers.sp = self.registers.sp.wrapping_add(1);
+                let high_byte = self.memory_bus.read(self.registers.sp);
+                self.registers.pc = (high_byte as u16) << 8 | low_byte as u16;
+                self.registers.sp = self.registers.sp.wrapping_add(1);
+            }
             _ => {
-                panic!("opcode no implementado: {:#04x}", opcode);
+                panic!(
+                    "opcode no implementado: {:#04x} en PC: {:#06x}",
+                    opcode, self.registers.pc
+                );
             }
         }
     }
 
     fn add(&mut self, value: u8) {
-        let (resultado_a, hubo_carry) = self.registers.a.overflowing_add(value);
+        let (result_a, hubo_carry) = self.registers.a.overflowing_add(value);
 
         //flags
-        self.registers.f.zero = resultado_a == 0;
+        self.registers.f.zero = result_a == 0;
         self.registers.f.subtract = false;
         self.registers.f.carry = hubo_carry;
         self.registers.f.half_carry = (self.registers.a & 0x0F) + (value & 0x0F) > 0x0F;
 
         //a register
-        self.registers.a = resultado_a;
+        self.registers.a = result_a;
     }
 
     fn inc(&mut self, value: u8) -> u8 {
-        let resultado = value.wrapping_add(1);
+        let result = value.wrapping_add(1);
 
-        self.registers.f.zero = resultado == 0;
+        self.registers.f.zero = result == 0;
         self.registers.f.subtract = false;
         self.registers.f.half_carry = (value & 0x0F) == 0x0F;
 
-        return resultado;
+        return result;
+    }
+
+    fn dec(&mut self, value: u8) -> u8 {
+        let result = value.wrapping_sub(1);
+
+        self.registers.f.zero = result == 0;
+        self.registers.f.subtract = true;
+        self.registers.f.half_carry = (value & 0x0F) == 0x00;
+
+        return result;
+    }
+    fn or(&mut self, value: u8) -> u8 {
+        let result = (self.registers.a) | (value);
+
+        self.registers.f.zero = result == 0;
+        self.registers.f.subtract = false;
+        self.registers.f.carry = false;
+        self.registers.f.half_carry = false;
+
+        return result;
+    }
+
+    fn sbc(&mut self, value: u8) -> u8 {
+        let (result1, carry1) = self.registers.a.overflowing_sub(value);
+        let (result2, carry2) = result1.overflowing_sub(self.registers.f.carry as u8);
+
+        self.registers.f.zero = result2 == 0;
+        self.registers.f.subtract = true;
+        self.registers.f.half_carry =
+            (self.registers.a & 0x0F) < (value & 0x0F) + self.registers.f.carry as u8;
+        self.registers.f.carry = carry1 || carry2;
+
+        return result2;
     }
 }
 
@@ -82,7 +143,8 @@ pub struct Registers {
     pub f: FlagsRegister, //flags 1111 0000: 1- zero 1- Subtraction 1- Half Carry 1- Carry 0000
     pub h: u8,
     pub l: u8,
-    pub pc: u16,
+    pub pc: u16, //program counter
+    pub sp: u16, //stack pointer
 }
 
 impl Registers {
@@ -102,6 +164,7 @@ impl Registers {
             h: 0,
             l: 0,
             pc: 0,
+            sp: 0xFFFE,
         }
     }
     //get 16-bit virtual regs
