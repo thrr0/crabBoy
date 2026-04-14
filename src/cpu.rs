@@ -54,6 +54,15 @@ impl CPU {
             0x05 => self.registers.b = self.dec(self.registers.b),
             //LD B, n8
             0x06 => self.registers.b = self.fetch(),
+            //LD (nn), SP
+            0x08 => {
+                let address = self.fetch_u16();
+                let sp_low_byte = self.registers.sp as u8;
+                let sp_high_byte = (self.registers.sp >> 8) as u8;
+
+                self.memory_bus.write(address, sp_low_byte);
+                self.memory_bus.write(address + 1, sp_high_byte);
+            }
             //DEC BC
             0x0B => {
                 let value = self.dec_u16(self.registers.get_bc());
@@ -211,6 +220,12 @@ impl CPU {
                 if self.registers.f.carry {
                     self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
                 }
+            }
+            //LD A, (HL-)
+            0x3A => {
+                self.registers.a = self.memory_bus.read(self.registers.get_hl());
+                self.registers
+                    .set_hl(self.registers.get_hl().wrapping_sub(1));
             }
             //DEC SP
             0x3B => {
@@ -546,6 +561,23 @@ impl CPU {
             //PUSH AF
             0xF5 => {
                 self.stack_push(self.registers.get_af());
+            }
+            //LD HL, SP+n
+            0xF8 => {
+                let value = self.fetch();
+                let sp_low_byte = self.registers.sp as u8;
+
+                self.registers.f.zero = false;
+                self.registers.f.subtract = false;
+                self.registers.f.half_carry = (sp_low_byte & 0x0F) + (value & 0x0F) > 0x0F;
+                self.registers.f.carry = sp_low_byte.overflowing_add(value).1;
+
+                self.registers
+                    .set_hl(self.registers.sp.wrapping_add_signed(value as i16));
+            }
+            //LD SP, HL
+            0xF9 => {
+                self.registers.sp = self.registers.get_hl();
             }
             //LD A, (a16)
             0xFA => {
