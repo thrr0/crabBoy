@@ -251,7 +251,7 @@ impl CPU {
                     5 => self.registers.l,
                     6 => self.memory_bus.read(self.registers.get_hl()), //memory[HL]
                     7 => self.registers.a,
-                    _ => panic!("QUE PASO EN MATCH OPCODE AYUDA"),
+                    _ => panic!("wrong source opcode match LD n, n"),
                 };
 
                 let target_adress = (opcode >> 3) & 0x07;
@@ -268,7 +268,7 @@ impl CPU {
                         4 => &mut self.registers.h,
                         5 => &mut self.registers.l,
                         7 => &mut self.registers.a,
-                        _ => panic!("QUE PASO EN MATCH OPCODE AYUDA"),
+                        _ => panic!("wrong target opcode match LD n, n"),
                     };
 
                     *target = src;
@@ -284,9 +284,33 @@ impl CPU {
             0x85 => self.add_to_a(self.registers.l),
             0x86 => self.add_to_a(self.memory_bus.read(self.registers.get_hl())),
             0x87 => self.add_to_a(self.registers.a),
+            //ADC A
+            0x88 => self.adc_to_a(self.registers.b),
+            0x89 => self.adc_to_a(self.registers.c),
+            0x8A => self.adc_to_a(self.registers.d),
+            0x8B => self.adc_to_a(self.registers.e),
+            0x8C => self.adc_to_a(self.registers.h),
+            0x8D => self.adc_to_a(self.registers.l),
+            0x8E => self.adc_to_a(self.memory_bus.read(self.registers.get_hl())),
+            0x8F => self.adc_to_a(self.registers.a),
+            //SUB A
+            0x90 => self.sub_from_a(self.registers.b),
+            0x91 => self.sub_from_a(self.registers.c),
+            0x92 => self.sub_from_a(self.registers.d),
+            0x93 => self.sub_from_a(self.registers.e),
+            0x94 => self.sub_from_a(self.registers.h),
+            0x95 => self.sub_from_a(self.registers.l),
+            0x96 => self.sub_from_a(self.memory_bus.read(self.registers.get_hl())),
+            0x97 => self.sub_from_a(self.registers.a),
             //SBC A
+            0x98 => self.registers.a = self.sbc(self.registers.b),
+            0x99 => self.registers.a = self.sbc(self.registers.c),
             0x9A => self.registers.a = self.sbc(self.registers.d),
+            0x9B => self.registers.a = self.sbc(self.registers.e),
+            0x9C => self.registers.a = self.sbc(self.registers.h),
+            0x9D => self.registers.a = self.sbc(self.registers.l),
             0x9E => self.registers.a = self.sbc(self.memory_bus.read(self.registers.get_hl())),
+            0x9F => self.registers.a = self.sbc(self.registers.a),
             //AND, XOR, OR, CMP n
             0xA0..=0xBF => {
                 // opcode: 01_xxx_yyy → xxx = operaction, yyy = source
@@ -352,7 +376,7 @@ impl CPU {
                 self.stack_push(self.registers.get_bc());
             }
             //ADD A, n8
-            0xc6 => {
+            0xC6 => {
                 let value = self.fetch();
                 self.add_to_a(value);
             }
@@ -467,6 +491,11 @@ impl CPU {
                 //jump to operand
                 self.registers.pc = address;
             }
+            //ADC A, n
+            0xCE => {
+                let value = self.fetch();
+                self.adc_to_a(value);
+            }
             //POP DE
             0xD1 => {
                 let address = self.stack_pop();
@@ -495,7 +524,7 @@ impl CPU {
             //SUB A, n8
             0xD6 => {
                 let value = self.fetch();
-                self.sub_to_a(value);
+                self.sub_from_a(value);
             }
             //RETI
             0xD9 => { /* TODO: RETI*/ }
@@ -514,6 +543,11 @@ impl CPU {
                     self.stack_push(self.registers.pc);
                     self.registers.pc = address;
                 }
+            }
+            //SBC A, n
+            0xDE => {
+                let value = self.fetch();
+                self.registers.a = self.sbc(value);
             }
             //LD (0xFF00 + n8), A
             0xE0 => {
@@ -598,6 +632,20 @@ impl CPU {
         }
     }
 
+    fn adc_to_a(&mut self, value: u8) {
+        let previous_carry = self.registers.f.carry as u8;
+        let (sum, carry1) = value.overflowing_add(previous_carry);
+        let (result_a, carry2) = self.registers.a.overflowing_add(sum);
+
+        self.registers.f.zero = result_a == 0;
+        self.registers.f.subtract = false;
+        self.registers.f.carry = carry1 || carry2;
+        self.registers.f.half_carry =
+            (self.registers.a & 0x0F) + (value & 0x0F) + (previous_carry & 0x0F) > 0x0F;
+
+        self.registers.a = result_a;
+    }
+
     fn add_to_a(&mut self, value: u8) {
         let (result_a, carry) = self.registers.a.overflowing_add(value);
 
@@ -605,19 +653,19 @@ impl CPU {
         self.registers.f.zero = result_a == 0;
         self.registers.f.subtract = false;
         self.registers.f.carry = carry;
-        self.registers.f.half_carry = (self.registers.a & 0x0F) < (value & 0x0F);
+        self.registers.f.half_carry = (self.registers.a & 0x0F) + (value & 0x0F) > 0x0F;
 
         //a register
         self.registers.a = result_a;
     }
 
-    fn sub_to_a(&mut self, value: u8) {
+    fn sub_from_a(&mut self, value: u8) {
         let (result_a, carry) = self.registers.a.overflowing_sub(value);
         //flags
         self.registers.f.zero = result_a == 0;
         self.registers.f.subtract = true;
         self.registers.f.carry = carry;
-        self.registers.f.half_carry = (self.registers.a & 0x0F) + (value & 0x0F) > 0x0F;
+        self.registers.f.half_carry = (self.registers.a & 0x0F) < (value & 0x0F);
 
         //a register
         self.registers.a = result_a;
