@@ -1,4 +1,4 @@
-use crate::memory::MemoryBus;
+se crate::memory::MemoryBus;cpu
 
 pub struct CPU {
     pub registers: Registers,
@@ -62,6 +62,20 @@ impl CPU {
 
                 self.memory_bus.write(address, sp_low_byte);
                 self.memory_bus.write(address + 1, sp_high_byte);
+            }
+            //ADD HL, u16
+            0x09 | 0x19 | 0x29 | 0x39 => {
+                let value = match opcode {
+                    0x09 => self.registers.get_bc(),
+                    0x19 => self.registers.get_de(),
+                    0x29 => self.registers.get_hl(),
+                    0x39 => self.registers.sp,
+                    _ => panic("opcode panic")
+                };
+
+                let result = self.add_u16(self.registers.get_hl(), value);
+
+                self.registers.set_hl(result);
             }
             //DEC BC
             0x0B => {
@@ -146,6 +160,29 @@ impl CPU {
             0x25 => self.registers.h = self.dec(self.registers.h),
             //LD H, n8
             0x26 => self.registers.h = self.fetch(),
+            //DAA
+            0x27 =>{
+                if self.registers.f.subtract {
+                    if self.registers.f.half_carry {
+                        self.registers.a = self.registers.a.wrapping_sub(0x06);
+                    }
+                    if self.registers.f.carry {
+                        self.registers.a  = self.registers.a.wrapping_sub(0x60)
+                    }
+                }
+                else{
+                    if (self.registers.a & 0x0F > 0x09)|| self.registers.f.half_carry {
+                        self.registers.a = self.registers.a.wrapping_add(0x06);
+                    }
+                    if (self.registers.a >> 4) & 0x0F > 0x09 || self.registers.f.carry{
+                        self.registers.a = self.registers.a.wrapping_add(0x60);
+                        self.registers.f.carry = true;
+                    }
+                }
+
+                self.registers.f.zero = self.registers.a == 0;
+                self.registers.f.half_carry = false;
+            }
             //JR Z, i8
             0x28 => {
                 let offset = self.fetch() as i8;
@@ -574,6 +611,20 @@ impl CPU {
                 let value = self.fetch();
                 self.registers.a = self.a_and(value);
             }
+            //ADD SP, n8
+            0xE8 => {
+                let value = self.fetch();
+                
+                let (result, carry) = self.registers.sp.overflowing_add_signed(value as i8 as i16);
+
+                self.registers.f.zero = false;
+                self.registers.f.subtract = false;
+                self.registers.f.half_carry = (self.registers.sp & 0x0F) + (value & 0x0F) > 0x0F;
+                self.registers.f.carry = (self.registers.sp & 0xFF) + (value & 0xFF) > 0xFF; 
+
+                self.registers.sp = result;
+
+            }
             //LD (n16), A
             0xEA => {
                 let address = self.fetch_u16();
@@ -657,6 +708,16 @@ impl CPU {
 
         //a register
         self.registers.a = result_a;
+    }
+
+    fn add_u16(&mut self, value_a: u16, value_b: u16) -> u16 {
+        let (result, carry) = value_a.overflowing_add(value_b);
+
+        self.registers.f.subtract = false;
+        self.registers.f.half_carry = (value_a & 0xFFF) + (value_b & 0xFFF) > 0xFFF;
+        self.registers.f.carry = carry;
+
+        result
     }
 
     fn sub_from_a(&mut self, value: u8) {
