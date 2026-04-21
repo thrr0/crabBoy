@@ -1,5 +1,4 @@
-se crate::memory::MemoryBus;cpu
-
+use std::fs;
 pub struct CPU {
     pub registers: Registers,
     pub memory_bus: MemoryBus,
@@ -54,6 +53,8 @@ impl CPU {
             0x05 => self.registers.b = self.dec(self.registers.b),
             //LD B, n8
             0x06 => self.registers.b = self.fetch(),
+            //RLCA
+            0x07 => self.registers.a = self.rlca(self.registers.a),
             //LD (nn), SP
             0x08 => {
                 let address = self.fetch_u16();
@@ -70,7 +71,7 @@ impl CPU {
                     0x19 => self.registers.get_de(),
                     0x29 => self.registers.get_hl(),
                     0x39 => self.registers.sp,
-                    _ => panic("opcode panic")
+                    _ => panic!(""),
                 };
 
                 let result = self.add_u16(self.registers.get_hl(), value);
@@ -89,6 +90,8 @@ impl CPU {
             0x0D => self.registers.c = self.dec(self.registers.c),
             //LD C, n8
             0x0E => self.registers.c = self.fetch(),
+            //RRCA
+            0x0F => self.registers.a = self.rrca(self.registers.a),
             //LD DE, n16
             0x11 => {
                 let value = self.fetch_u16();
@@ -111,6 +114,8 @@ impl CPU {
             0x15 => self.registers.d = self.dec(self.registers.d),
             //LD D, n8
             0x16 => self.registers.d = self.fetch(),
+            //RLA
+            0x17 => self.registers.a = self.rla(self.registers.a),
             //JR i8
             0x18 => {
                 let offset = self.fetch() as i16;
@@ -130,6 +135,8 @@ impl CPU {
             0x1D => self.registers.e = self.dec(self.registers.e),
             //LD E, n8
             0x1E => self.registers.e = self.fetch(),
+            //RRA
+            0x1F => self.registers.a = self.rra(self.registers.a),
             //JR nz, i8
             0x20 => {
                 let offset = self.fetch() as i8;
@@ -161,20 +168,19 @@ impl CPU {
             //LD H, n8
             0x26 => self.registers.h = self.fetch(),
             //DAA
-            0x27 =>{
+            0x27 => {
                 if self.registers.f.subtract {
                     if self.registers.f.half_carry {
                         self.registers.a = self.registers.a.wrapping_sub(0x06);
                     }
                     if self.registers.f.carry {
-                        self.registers.a  = self.registers.a.wrapping_sub(0x60)
+                        self.registers.a = self.registers.a.wrapping_sub(0x60)
                     }
-                }
-                else{
-                    if (self.registers.a & 0x0F > 0x09)|| self.registers.f.half_carry {
+                } else {
+                    if (self.registers.a & 0x0F > 0x09) || self.registers.f.half_carry {
                         self.registers.a = self.registers.a.wrapping_add(0x06);
                     }
-                    if (self.registers.a >> 4) & 0x0F > 0x09 || self.registers.f.carry{
+                    if (self.registers.a >> 4) & 0x0F > 0x09 || self.registers.f.carry {
                         self.registers.a = self.registers.a.wrapping_add(0x60);
                         self.registers.f.carry = true;
                     }
@@ -208,6 +214,13 @@ impl CPU {
             0x2D => self.registers.l = self.dec(self.registers.l),
             //LD L, n8
             0x2E => self.registers.l = self.fetch(),
+            //CPL A
+            0x2F => {
+                self.registers.a = !self.registers.a;
+
+                self.registers.f.subtract = true;
+                self.registers.f.half_carry = true;
+            }
             //JR NC, i8
             0x30 => {
                 let offset = self.fetch() as i8;
@@ -251,6 +264,12 @@ impl CPU {
                 let data = self.fetch();
                 self.memory_bus.write(self.registers.get_hl(), data);
             }
+            //SCF
+            0x37 => {
+                self.registers.f.carry = true;
+                self.registers.f.subtract = false;
+                self.registers.f.half_carry = false;
+            }
             //JR C, i8
             0x38 => {
                 let offset = self.fetch() as i8;
@@ -276,6 +295,12 @@ impl CPU {
             0x3D => self.registers.a = self.dec(self.registers.a),
             //LD A, n8
             0x3E => self.registers.a = self.fetch(),
+            //CCF
+            0x3F => {
+                self.registers.f.carry = !self.registers.f.carry;
+                self.registers.f.subtract = false;
+                self.registers.f.half_carry = false;
+            }
             // LD n, n
             0x40..=0x7f => {
                 // opcode: 01_xxx_yyy → xxx = destination, yyy = source
@@ -614,17 +639,19 @@ impl CPU {
             //ADD SP, n8
             0xE8 => {
                 let value = self.fetch();
-                
-                let (result, carry) = self.registers.sp.overflowing_add_signed(value as i8 as i16);
+
+                let result = self.registers.sp.overflowing_add_signed(value as i8 as i16);
 
                 self.registers.f.zero = false;
                 self.registers.f.subtract = false;
-                self.registers.f.half_carry = (self.registers.sp & 0x0F) + (value & 0x0F) > 0x0F;
-                self.registers.f.carry = (self.registers.sp & 0xFF) + (value & 0xFF) > 0xFF; 
+                self.registers.f.half_carry =
+                    (self.registers.sp as u8 & 0x0F) + (value & 0x0F) > 0x0F;
+                self.registers.f.carry = (self.registers.sp & 0xFF) + (value as u16 & 0xFF) > 0xFF;
 
-                self.registers.sp = result;
-
+                self.registers.sp = result.0;
             }
+            //JP HL
+            0xE9 => self.registers.pc = self.registers.get_hl(),
             //LD (n16), A
             0xEA => {
                 let address = self.fetch_u16();
@@ -828,7 +855,54 @@ impl CPU {
         result
     }
 
-    //rotate left circular
+    // rorate left
+    fn rlca(&mut self, byte: u8) -> u8 {
+        let rotated = (byte << 1) | (byte >> 7);
+
+        self.registers.f.zero = false;
+        self.registers.f.subtract = false;
+        self.registers.f.half_carry = false;
+        self.registers.f.carry = byte & 0x80 != 0;
+
+        rotated
+    }
+
+    //rotate left through carry
+    fn rla(&mut self, byte: u8) -> u8 {
+        let rotated = (byte << 1) | self.registers.f.carry as u8;
+
+        self.registers.f.zero = false;
+        self.registers.f.subtract = false;
+        self.registers.f.half_carry = false;
+        self.registers.f.carry = byte & 0x80 != 0;
+
+        rotated
+    }
+
+    //rotate right
+    fn rrca(&mut self, byte: u8) -> u8 {
+        let rotated = (byte << 7) | (byte >> 1);
+
+        self.registers.f.zero = false;
+        self.registers.f.subtract = false;
+        self.registers.f.half_carry = false;
+        self.registers.f.carry = byte & 0x01 != 0;
+
+        rotated
+    }
+
+    //rotate right through carry
+    fn rra(&mut self, byte: u8) -> u8 {
+        let rotated = ((self.registers.f.carry as u8) << 7) | (byte >> 1);
+
+        self.registers.f.zero = false;
+        self.registers.f.subtract = false;
+        self.registers.f.half_carry = false;
+        self.registers.f.carry = byte & 0x01 != 0;
+
+        rotated
+    }
+    // CB: rotate left circular
     fn rlc(&mut self, byte: u8) -> u8 {
         let rotated = (byte << 1) | (byte >> 7);
 
@@ -840,7 +914,7 @@ impl CPU {
         rotated
     }
 
-    //rotate right circular
+    //CB: rotate right circular
     fn rrc(&mut self, byte: u8) -> u8 {
         let rotated = (byte << 7) | (byte >> 1);
 
@@ -852,7 +926,7 @@ impl CPU {
         rotated
     }
 
-    //rotate left through carry
+    //CB: rotate left through carry
     fn rl(&mut self, byte: u8) -> u8 {
         let rotated = (byte << 1) | self.registers.f.carry as u8;
 
@@ -864,7 +938,7 @@ impl CPU {
         rotated
     }
 
-    //rotate right through carry
+    //CB: rotate right through carry
     fn rr(&mut self, byte: u8) -> u8 {
         let rotated = ((self.registers.f.carry as u8) << 7) | (byte >> 1);
 
@@ -1045,5 +1119,31 @@ impl FlagsRegister {
         self.subtract = ((value >> SUBTRACT_FLAG_BYTE_POISITION) & 0b1) != 0;
         self.half_carry = ((value >> HALF_CARRY_FLAG_BYTE_POSITION) & 0b1) != 0;
         self.carry = ((value >> CARRY_FLAG_BYTE_POSITION) & 0b1) != 0;
+    }
+}
+
+pub const MEMORY_BUS_SIZE: usize = 65536;
+
+pub struct MemoryBus {
+    pub memory: [u8; MEMORY_BUS_SIZE],
+}
+
+impl MemoryBus {
+    pub fn new() -> MemoryBus {
+        MemoryBus {
+            memory: [0; MEMORY_BUS_SIZE],
+        }
+    }
+    pub fn read(&self, address: u16) -> u8 {
+        self.memory[address as usize]
+    }
+
+    pub fn write(&mut self, adress: u16, value: u8) {
+        self.memory[adress as usize] = value;
+    }
+
+    pub fn load_rom(&mut self, path: &str) {
+        let bytes = fs::read(path).unwrap();
+        self.memory[..bytes.len()].copy_from_slice(&bytes);
     }
 }
