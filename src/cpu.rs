@@ -13,7 +13,7 @@ impl CPU {
     }
     pub fn step(&mut self) {
         let op: u8 = self.fetch();
-        println!("PC: {:#06x} OP: {:#04x}", self.registers.pc - 1, op);
+        // println!("PC: {:#06x} OP: {:#04x}", self.registers.pc - 1, op);
         self.decode_execute(op);
     }
     fn fetch(&mut self) -> u8 {
@@ -92,6 +92,7 @@ impl CPU {
             0x0E => self.registers.c = self.fetch(),
             //RRCA
             0x0F => self.registers.a = self.rrca(self.registers.a),
+            0x10 => { /* TODO: STOP */ }
             //LD DE, n16
             0x11 => {
                 let value = self.fetch_u16();
@@ -118,7 +119,7 @@ impl CPU {
             0x17 => self.registers.a = self.rla(self.registers.a),
             //JR i8
             0x18 => {
-                let offset = self.fetch() as i16;
+                let offset = self.fetch() as i8 as i16;
                 self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
             }
             //LD A, (DE)
@@ -301,6 +302,7 @@ impl CPU {
                 self.registers.f.subtract = false;
                 self.registers.f.half_carry = false;
             }
+            0x76 => { /* TODO: HALT*/ }
             // LD n, n
             0x40..=0x7f => {
                 // opcode: 01_xxx_yyy → xxx = destination, yyy = source
@@ -336,7 +338,6 @@ impl CPU {
                     *target = src;
                 }
             }
-            0x76 => { /* TODO: HALT*/ }
             // ADD A
             0x80 => self.add_to_a(self.registers.b),
             0x81 => self.add_to_a(self.registers.c),
@@ -403,6 +404,12 @@ impl CPU {
 
                 self.registers.a = result;
             }
+            //RET NZ
+            0xC0 => {
+                if !self.registers.f.zero {
+                    self.ret()
+                };
+            }
             //POP BC
             0xC1 => {
                 let address = self.stack_pop();
@@ -442,11 +449,16 @@ impl CPU {
                 let value = self.fetch();
                 self.add_to_a(value);
             }
-            //RET
-            0xC9 => {
-                let address = self.stack_pop();
-                self.registers.pc = address;
+            //RST $00H
+            0xC7 => self.rst(opcode),
+            //RET Z
+            0xC8 => {
+                if self.registers.f.zero {
+                    self.ret()
+                }
             }
+            //RET
+            0xC9 => self.ret(),
             //JP Z, n16
             0xCA => {
                 let address = self.fetch_u16();
@@ -558,6 +570,14 @@ impl CPU {
                 let value = self.fetch();
                 self.adc_to_a(value);
             }
+            //RST $08
+            0xCF => self.rst(opcode),
+            //RET NC
+            0xD0 => {
+                if !self.registers.f.carry {
+                    self.ret()
+                }
+            }
             //POP DE
             0xD1 => {
                 let address = self.stack_pop();
@@ -588,8 +608,19 @@ impl CPU {
                 let value = self.fetch();
                 self.sub_from_a(value);
             }
+            //RST $10
+            0xD7 => self.rst(opcode),
+            //RET C
+            0xD8 => {
+                if self.registers.f.carry {
+                    self.ret();
+                }
+            }
             //RETI
-            0xD9 => { /* TODO: RETI*/ }
+            0xD9 => {
+                self.ret();
+                // TODO: enable interrupts
+            }
             //JP C, n16
             0xDA => {
                 let address = self.fetch_u16();
@@ -611,6 +642,8 @@ impl CPU {
                 let value = self.fetch();
                 self.registers.a = self.sbc(value);
             }
+            //RST $18
+            0xDF => self.rst(opcode),
             //LD (0xFF00 + n8), A
             0xE0 => {
                 let offset = self.fetch();
@@ -636,6 +669,8 @@ impl CPU {
                 let value = self.fetch();
                 self.registers.a = self.a_and(value);
             }
+            //RST $20
+            0xE7 => self.rst(opcode),
             //ADD SP, n8
             0xE8 => {
                 let value = self.fetch();
@@ -657,6 +692,13 @@ impl CPU {
                 let address = self.fetch_u16();
                 self.memory_bus.write(address, self.registers.a);
             }
+            //XOR A, n8
+            0xEE => {
+                let value = self.fetch();
+                self.registers.a = self.a_xor(value);
+            }
+            //RST $28
+            0xEF => self.rst(opcode),
             //LD A, (0xFF00 + n8)
             0xF0 => {
                 let offset = self.fetch();
@@ -674,6 +716,13 @@ impl CPU {
             0xF5 => {
                 self.stack_push(self.registers.get_af());
             }
+            //OR A, n8
+            0xF6 => {
+                let value = self.fetch();
+                self.registers.a = self.a_or(value);
+            }
+            //RST $30
+            0xF7 => self.rst(opcode),
             //LD HL, SP+n
             0xF8 => {
                 let value = self.fetch();
@@ -685,7 +734,7 @@ impl CPU {
                 self.registers.f.carry = sp_low_byte.overflowing_add(value).1;
 
                 self.registers
-                    .set_hl(self.registers.sp.wrapping_add_signed(value as i16));
+                    .set_hl(self.registers.sp.wrapping_add_signed(value as i8 as i16));
             }
             //LD SP, HL
             0xF9 => {
@@ -696,11 +745,14 @@ impl CPU {
                 let address = self.fetch_u16();
                 self.registers.a = self.memory_bus.read(address);
             }
+            0xFB => { /* TODO: ENABLE INTERRUPTS */ }
             //CP A, n8
             0xFE => {
                 let operand = self.fetch();
                 self.compare(self.registers.a, operand);
             }
+            //RST $38
+            0xFF => self.rst(opcode),
             _ => {
                 panic!(
                     "opcode no implementado: {:#04x} en PC: {:#06x}",
@@ -969,7 +1021,7 @@ impl CPU {
         self.registers.f.zero = shifted == 0;
         self.registers.f.subtract = false;
         self.registers.f.half_carry = false;
-        self.registers.f.carry = byte & 0x80 != 0;
+        self.registers.f.carry = byte & 0x01 != 0;
 
         shifted
     }
@@ -1004,8 +1056,16 @@ impl CPU {
         byte & !(1 << bit)
     }
 
+    fn rst(&mut self, opcode: u8) {
+        self.stack_push(self.registers.pc);
+        self.registers.pc = opcode as u16 & 0x38;
+    }
     //STACK
 
+    fn ret(&mut self) {
+        let address = self.stack_pop();
+        self.registers.pc = address;
+    }
     fn stack_push(&mut self, value: u16) {
         let high_byte = (value >> 8) as u8;
         self.registers.sp = self.registers.sp.wrapping_sub(1);
@@ -1138,8 +1198,11 @@ impl MemoryBus {
         self.memory[address as usize]
     }
 
-    pub fn write(&mut self, adress: u16, value: u8) {
-        self.memory[adress as usize] = value;
+    pub fn write(&mut self, address: u16, value: u8) {
+        if address == 0xFF02 && value == 0x81 {
+            print!("{}", self.memory[0xFF01] as char);
+        }
+        self.memory[address as usize] = value;
     }
 
     pub fn load_rom(&mut self, path: &str) {

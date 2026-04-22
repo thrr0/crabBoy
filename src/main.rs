@@ -1,7 +1,6 @@
 use crate::cpu::CPU;
 
 mod cpu;
-mod memory;
 
 fn main() {
     let mut cpu = CPU::new();
