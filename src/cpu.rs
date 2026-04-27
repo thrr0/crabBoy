@@ -1,7 +1,11 @@
 use std::fs;
+const IE_ADDRESS: u16 = 0xFFFF;
+const IF_ADDRESS: u16 = 0xFF0F;
+
 pub struct CPU {
     pub registers: Registers,
     pub memory_bus: MemoryBus,
+    pub ime: bool,
 }
 
 impl CPU {
@@ -9,9 +13,35 @@ impl CPU {
         CPU {
             registers: Registers::new(),
             memory_bus: MemoryBus::new(),
+            ime: false,
         }
     }
     pub fn step(&mut self) {
+        if self.ime {
+            let pending = self.memory_bus.read(IE_ADDRESS) & self.memory_bus.read(IF_ADDRESS);
+            if pending != 0 {
+                let bit_value = pending & pending.wrapping_neg();
+                self.ime = false;
+
+                let interrupt_flag = self.memory_bus.read(IF_ADDRESS);
+
+                self.memory_bus
+                    .write(IF_ADDRESS, interrupt_flag & !bit_value);
+
+                self.stack_push(self.registers.pc);
+
+                let handler: u16 = match bit_value {
+                    0x01 => 0x0040, //V-BLANK
+                    0x02 => 0x0048, //LCD STAT
+                    0x04 => 0x0050, //TIMER
+                    0x08 => 0x0058, //SERIAL
+                    0x10 => 0x0060, //JOYPAD
+                    _ => panic!("wrong handler value"),
+                };
+
+                self.registers.pc = handler;
+            }
+        }
         let op: u8 = self.fetch();
         // println!("PC: {:#06x} OP: {:#04x}", self.registers.pc - 1, op);
         self.decode_execute(op);
@@ -619,7 +649,7 @@ impl CPU {
             //RETI
             0xD9 => {
                 self.ret();
-                // TODO: enable interrupts
+                self.ime = true;
             }
             //JP C, n16
             0xDA => {
@@ -711,7 +741,7 @@ impl CPU {
             }
             //LD A, ($FF00 + C)
             0xF2 => self.registers.a = self.memory_bus.read(0xFF00 + self.registers.c as u16),
-            0xF3 => { /* TODO: Disable interrupts */ }
+            0xF3 => self.ime = false,
             //PUSH AF
             0xF5 => {
                 self.stack_push(self.registers.get_af());
@@ -745,7 +775,7 @@ impl CPU {
                 let address = self.fetch_u16();
                 self.registers.a = self.memory_bus.read(address);
             }
-            0xFB => { /* TODO: ENABLE INTERRUPTS */ }
+            0xFB => self.ime = true,
             //CP A, n8
             0xFE => {
                 let operand = self.fetch();
