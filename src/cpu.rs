@@ -8,6 +8,7 @@ pub struct CPU {
     pub ime: bool,
     pub tima_cycles: u64,
     pub div_cycles: u64,
+    pub halted: bool,
 }
 
 impl CPU {
@@ -18,13 +19,14 @@ impl CPU {
             ime: false,
             tima_cycles: 0,
             div_cycles: 0,
+            halted: false,
         }
     }
     pub fn step(&mut self) {
-        if self.ime {
-            let pending = self.memory_bus.read(IE_ADDRESS) & self.memory_bus.read(IF_ADDRESS);
-
-            if pending != 0 {
+        let pending = self.memory_bus.read(IE_ADDRESS) & self.memory_bus.read(IF_ADDRESS);
+        if pending != 0 {
+            self.halted = false;
+            if self.ime {
                 let bit_value = pending & pending.wrapping_neg();
                 self.ime = false;
 
@@ -47,10 +49,15 @@ impl CPU {
                 self.registers.pc = handler;
             }
         }
-        let op: u8 = self.fetch();
-        // println!("PC: {:#06x} OP: {:#04x}", self.registers.pc - 1, op);
-        let cycles = self.decode_execute(op) as u32;
-        self.update_timer(cycles);
+
+        if self.halted {
+            self.update_timer(4);
+        } else {
+            let op: u8 = self.fetch();
+            // println!("PC: {:#06x} OP: {:#04x}", self.registers.pc - 1, op);
+            let cycles = self.decode_execute(op) as u32;
+            self.update_timer(cycles);
+        }
     }
 
     fn fetch(&mut self) -> u8 {
@@ -326,23 +333,26 @@ impl CPU {
             }
             //DAA
             0x27 => {
+                let mut modified: u8 = self.registers.a;
+
                 if self.registers.f.subtract {
                     if self.registers.f.half_carry {
-                        self.registers.a = self.registers.a.wrapping_sub(0x06);
+                        modified = modified.wrapping_sub(0x06);
                     }
                     if self.registers.f.carry {
-                        self.registers.a = self.registers.a.wrapping_sub(0x60)
+                        modified = modified.wrapping_sub(0x60);
                     }
                 } else {
                     if (self.registers.a & 0x0F > 0x09) || self.registers.f.half_carry {
-                        self.registers.a = self.registers.a.wrapping_add(0x06);
+                        modified = modified.wrapping_add(0x06);
                     }
-                    if (self.registers.a >> 4) & 0x0F > 0x09 || self.registers.f.carry {
-                        self.registers.a = self.registers.a.wrapping_add(0x60);
+                    if self.registers.a > 0x99 || self.registers.f.carry {
+                        modified = modified.wrapping_add(0x60);
                         self.registers.f.carry = true;
                     }
                 }
 
+                self.registers.a = modified;
                 self.registers.f.zero = self.registers.a == 0;
                 self.registers.f.half_carry = false;
                 4
@@ -501,8 +511,9 @@ impl CPU {
                 self.registers.f.half_carry = false;
                 4
             }
+            //HALT
             0x76 => {
-                /* TODO: HALT*/
+                self.halted = true;
                 4
             }
 
@@ -1617,7 +1628,12 @@ impl MemoryBus {
 
     pub fn write(&mut self, address: u16, mut value: u8) {
         if address == 0xFF02 && value == 0x81 {
-            print!("{}", self.memory[0xFF01] as char);
+            if self.memory[0xFF01] == 0x0A {
+                //line jump
+                println!();
+            } else {
+                print!("{}", self.memory[0xFF01] as char);
+            }
         }
         if address == 0xFF04 {
             value = 0
