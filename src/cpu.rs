@@ -6,6 +6,8 @@ pub struct CPU {
     pub registers: Registers,
     pub memory_bus: MemoryBus,
     pub ime: bool,
+    pub tima_cycles: u64,
+    pub div_cycles: u64,
 }
 
 impl CPU {
@@ -14,11 +16,14 @@ impl CPU {
             registers: Registers::new(),
             memory_bus: MemoryBus::new(),
             ime: false,
+            tima_cycles: 0,
+            div_cycles: 0,
         }
     }
     pub fn step(&mut self) {
         if self.ime {
             let pending = self.memory_bus.read(IE_ADDRESS) & self.memory_bus.read(IF_ADDRESS);
+
             if pending != 0 {
                 let bit_value = pending & pending.wrapping_neg();
                 self.ime = false;
@@ -44,8 +49,10 @@ impl CPU {
         }
         let op: u8 = self.fetch();
         // println!("PC: {:#06x} OP: {:#04x}", self.registers.pc - 1, op);
-        self.decode_execute(op);
+        let cycles = self.decode_execute(op) as u32;
+        self.update_timer(cycles);
     }
+
     fn fetch(&mut self) -> u8 {
         let instruction = self.memory_bus.read(self.registers.pc);
         self.registers.pc += 1;
@@ -58,33 +65,86 @@ impl CPU {
         (high_byte as u16) << 8 | low_byte as u16
     }
 
-    fn decode_execute(&mut self, opcode: u8) {
+    fn update_timer(&mut self, cycles: u32) {
+        self.div_cycles += cycles as u64;
+
+        if self.div_cycles >= 256 {
+            self.div_cycles -= 256;
+            let div = self.memory_bus.read(0xFF04);
+            self.memory_bus.write(0xFF04, div.wrapping_add(1));
+        }
+
+        let tac = self.memory_bus.read(0xFF07);
+        let timer_enabled = tac & 0x04 != 0;
+        let threshold: u64 = match tac & 0x03 {
+            0 => 1024,
+            1 => 16,
+            2 => 64,
+            3 => 256,
+            _ => unreachable!(),
+        };
+
+        if timer_enabled {
+            self.tima_cycles += cycles as u64;
+            if self.tima_cycles >= threshold {
+                self.tima_cycles -= threshold;
+                let tima = self.memory_bus.read(0xFF05);
+                let (new_tima, overflow) = tima.overflowing_add(1);
+
+                if overflow {
+                    let tma = self.memory_bus.read(0xFF06);
+                    self.memory_bus.write(0xFF05, tma);
+                    let if_flag = self.memory_bus.read(IF_ADDRESS);
+                    self.memory_bus.write(IF_ADDRESS, if_flag | 0x04);
+                } else {
+                    self.memory_bus.write(0xFF05, new_tima);
+                }
+            }
+        }
+    }
+    fn decode_execute(&mut self, opcode: u8) -> u8 {
         match opcode {
             //NOP
-            0x00 => {}
+            0x00 => 4,
             //LD BC, n16
             0x01 => {
                 let value = self.fetch_u16();
                 self.registers.set_bc(value);
+                12
             }
             //LD (BC), A
             0x02 => {
                 self.memory_bus
                     .write(self.registers.get_bc(), self.registers.a);
+                8
             }
             //INC BC
             0x03 => {
                 let value = self.inc_u16(self.registers.get_bc());
                 self.registers.set_bc(value);
+                8
             }
             //INC B
-            0x04 => self.registers.b = self.inc(self.registers.b),
+            0x04 => {
+                self.registers.b = self.inc(self.registers.b);
+                4
+            }
             //DEC B
-            0x05 => self.registers.b = self.dec(self.registers.b),
+            0x05 => {
+                self.registers.b = self.dec(self.registers.b);
+                4
+            }
             //LD B, n8
-            0x06 => self.registers.b = self.fetch(),
+            0x06 => {
+                self.registers.b = self.fetch();
+                8
+            }
             //RLCA
-            0x07 => self.registers.a = self.rlca(self.registers.a),
+            0x07 => {
+                self.registers.a = self.rlca(self.registers.a);
+                4
+            }
+
             //LD (nn), SP
             0x08 => {
                 let address = self.fetch_u16();
@@ -93,6 +153,7 @@ impl CPU {
 
                 self.memory_bus.write(address, sp_low_byte);
                 self.memory_bus.write(address + 1, sp_high_byte);
+                20
             }
             //ADD HL, u16
             0x09 | 0x19 | 0x29 | 0x39 => {
@@ -107,78 +168,132 @@ impl CPU {
                 let result = self.add_u16(self.registers.get_hl(), value);
 
                 self.registers.set_hl(result);
+                8
             }
             //DEC BC
             0x0B => {
                 let value = self.dec_u16(self.registers.get_bc());
 
                 self.registers.set_bc(value);
+                8
             }
             //INC C
-            0x0C => self.registers.c = self.inc(self.registers.c),
+            0x0C => {
+                self.registers.c = self.inc(self.registers.c);
+                4
+            }
+
             //DEC C
-            0x0D => self.registers.c = self.dec(self.registers.c),
+            0x0D => {
+                self.registers.c = self.dec(self.registers.c);
+                4
+            }
             //LD C, n8
-            0x0E => self.registers.c = self.fetch(),
+            0x0E => {
+                self.registers.c = self.fetch();
+                8
+            }
             //RRCA
-            0x0F => self.registers.a = self.rrca(self.registers.a),
-            0x10 => { /* TODO: STOP */ }
+            0x0F => {
+                self.registers.a = self.rrca(self.registers.a);
+                4
+            }
+            0x10 => {
+                /* TODO: STOP */
+                4
+            }
             //LD DE, n16
             0x11 => {
                 let value = self.fetch_u16();
                 self.registers.set_de(value);
+                12
             }
             //LD (DE), A
             0x12 => {
                 self.memory_bus
                     .write(self.registers.get_de(), self.registers.a);
+                8
             }
             //INC DE
             0x13 => {
                 let value = self.inc_u16(self.registers.get_de());
 
                 self.registers.set_de(value);
+                8
             }
             //INC D
-            0x14 => self.registers.d = self.inc(self.registers.d),
+            0x14 => {
+                self.registers.d = self.inc(self.registers.d);
+                4
+            }
             //DEC D
-            0x15 => self.registers.d = self.dec(self.registers.d),
+            0x15 => {
+                self.registers.d = self.dec(self.registers.d);
+                4
+            }
             //LD D, n8
-            0x16 => self.registers.d = self.fetch(),
+            0x16 => {
+                self.registers.d = self.fetch();
+                8
+            }
             //RLA
-            0x17 => self.registers.a = self.rla(self.registers.a),
+            0x17 => {
+                self.registers.a = self.rla(self.registers.a);
+                4
+            }
             //JR i8
             0x18 => {
                 let offset = self.fetch() as i8 as i16;
                 self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
+                12
             }
             //LD A, (DE)
-            0x1A => self.registers.a = self.memory_bus.read(self.registers.get_de()),
+            0x1A => {
+                self.registers.a = self.memory_bus.read(self.registers.get_de());
+                8
+            }
             //DEC DE
             0x1B => {
                 let value = self.dec_u16(self.registers.get_de());
 
                 self.registers.set_de(value);
+                8
             }
             //INC E
-            0x1C => self.registers.e = self.inc(self.registers.e),
+            0x1C => {
+                self.registers.e = self.inc(self.registers.e);
+                4
+            }
             //DEC E
-            0x1D => self.registers.e = self.dec(self.registers.e),
+            0x1D => {
+                self.registers.e = self.dec(self.registers.e);
+                4
+            }
             //LD E, n8
-            0x1E => self.registers.e = self.fetch(),
+            0x1E => {
+                self.registers.e = self.fetch();
+                8
+            }
             //RRA
-            0x1F => self.registers.a = self.rra(self.registers.a),
+            0x1F => {
+                self.registers.a = self.rra(self.registers.a);
+                4
+            }
             //JR nz, i8
             0x20 => {
                 let offset = self.fetch() as i8;
                 if !self.registers.f.zero {
                     self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
+                    12
+                } else {
+                    8
                 }
             }
             //LD HL, n16
             0x21 => {
                 let value = self.fetch_u16();
                 self.registers.set_hl(value);
+                12
             }
             //LD (HL+), A
             0x22 => {
@@ -186,18 +301,29 @@ impl CPU {
                     .write(self.registers.get_hl(), self.registers.a);
                 self.registers
                     .set_hl(self.registers.get_hl().wrapping_add(1));
+                8
             }
             //INC HL
             0x23 => {
                 let value = self.inc_u16(self.registers.get_hl());
                 self.registers.set_hl(value);
+                8
             }
             //INC H
-            0x24 => self.registers.h = self.inc(self.registers.h),
+            0x24 => {
+                self.registers.h = self.inc(self.registers.h);
+                4
+            }
             //DEC H
-            0x25 => self.registers.h = self.dec(self.registers.h),
+            0x25 => {
+                self.registers.h = self.dec(self.registers.h);
+                4
+            }
             //LD H, n8
-            0x26 => self.registers.h = self.fetch(),
+            0x26 => {
+                self.registers.h = self.fetch();
+                8
+            }
             //DAA
             0x27 => {
                 if self.registers.f.subtract {
@@ -219,12 +345,16 @@ impl CPU {
 
                 self.registers.f.zero = self.registers.a == 0;
                 self.registers.f.half_carry = false;
+                4
             }
             //JR Z, i8
             0x28 => {
                 let offset = self.fetch() as i8;
                 if self.registers.f.zero {
                     self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
+                    12
+                } else {
+                    8
                 }
             }
             //LD A, (HL+)
@@ -232,47 +362,67 @@ impl CPU {
                 self.registers.a = self.memory_bus.read(self.registers.get_hl());
                 self.registers
                     .set_hl(self.registers.get_hl().wrapping_add(1));
+                8
             }
             //DEC HL
             0x2B => {
                 let value = self.dec_u16(self.registers.get_hl());
 
                 self.registers.set_hl(value);
+                8
             }
             //INC L
-            0x2C => self.registers.l = self.inc(self.registers.l),
+            0x2C => {
+                self.registers.l = self.inc(self.registers.l);
+                4
+            }
             //DEC L
-            0x2D => self.registers.l = self.dec(self.registers.l),
+            0x2D => {
+                self.registers.l = self.dec(self.registers.l);
+                4
+            }
             //LD L, n8
-            0x2E => self.registers.l = self.fetch(),
+            0x2E => {
+                self.registers.l = self.fetch();
+                8
+            }
             //CPL A
             0x2F => {
                 self.registers.a = !self.registers.a;
 
                 self.registers.f.subtract = true;
                 self.registers.f.half_carry = true;
+                4
             }
             //JR NC, i8
             0x30 => {
                 let offset = self.fetch() as i8;
                 if !self.registers.f.carry {
                     self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
+                    12
+                } else {
+                    8
                 }
             }
             //LD SP, n16
-            0x31 => self.registers.sp = self.fetch_u16(),
+            0x31 => {
+                self.registers.sp = self.fetch_u16();
+                12
+            }
             //LD (HL-), A
             0x32 => {
                 self.memory_bus
                     .write(self.registers.get_hl(), self.registers.a);
                 self.registers
                     .set_hl(self.registers.get_hl().wrapping_sub(1));
+                8
             }
             //INC SP
             0x33 => {
                 let value = self.inc_u16(self.registers.sp);
 
                 self.registers.sp = value;
+                8
             }
             //INC (HL)
             0x34 => {
@@ -281,6 +431,7 @@ impl CPU {
 
                 self.memory_bus
                     .write(self.registers.get_hl(), incremented_value);
+                12
             }
             //DEC (HL)
             0x35 => {
@@ -289,23 +440,29 @@ impl CPU {
 
                 self.memory_bus
                     .write(self.registers.get_hl(), decreased_value);
+                12
             }
             //LD [HL], n8
             0x36 => {
                 let data = self.fetch();
                 self.memory_bus.write(self.registers.get_hl(), data);
+                12
             }
             //SCF
             0x37 => {
                 self.registers.f.carry = true;
                 self.registers.f.subtract = false;
                 self.registers.f.half_carry = false;
+                4
             }
             //JR C, i8
             0x38 => {
                 let offset = self.fetch() as i8;
                 if self.registers.f.carry {
                     self.registers.pc = self.registers.pc.wrapping_add_signed(offset as i16);
+                    12
+                } else {
+                    8
                 }
             }
             //LD A, (HL-)
@@ -313,26 +470,42 @@ impl CPU {
                 self.registers.a = self.memory_bus.read(self.registers.get_hl());
                 self.registers
                     .set_hl(self.registers.get_hl().wrapping_sub(1));
+                8
             }
             //DEC SP
             0x3B => {
                 let value = self.dec_u16(self.registers.sp);
 
                 self.registers.sp = value;
+                8
             }
             //INC A
-            0x3C => self.registers.a = self.inc(self.registers.a),
+            0x3C => {
+                self.registers.a = self.inc(self.registers.a);
+                4
+            }
             //DEC A
-            0x3D => self.registers.a = self.dec(self.registers.a),
+            0x3D => {
+                self.registers.a = self.dec(self.registers.a);
+                4
+            }
             //LD A, n8
-            0x3E => self.registers.a = self.fetch(),
+            0x3E => {
+                self.registers.a = self.fetch();
+                8
+            }
             //CCF
             0x3F => {
                 self.registers.f.carry = !self.registers.f.carry;
                 self.registers.f.subtract = false;
                 self.registers.f.half_carry = false;
+                4
             }
-            0x76 => { /* TODO: HALT*/ }
+            0x76 => {
+                /* TODO: HALT*/
+                4
+            }
+
             // LD n, n
             0x40..=0x7f => {
                 // opcode: 01_xxx_yyy → xxx = destination, yyy = source
@@ -367,43 +540,140 @@ impl CPU {
 
                     *target = src;
                 }
+                4
             }
             // ADD A
-            0x80 => self.add_to_a(self.registers.b),
-            0x81 => self.add_to_a(self.registers.c),
-            0x82 => self.add_to_a(self.registers.d),
-            0x83 => self.add_to_a(self.registers.e),
-            0x84 => self.add_to_a(self.registers.h),
-            0x85 => self.add_to_a(self.registers.l),
-            0x86 => self.add_to_a(self.memory_bus.read(self.registers.get_hl())),
-            0x87 => self.add_to_a(self.registers.a),
+            0x80 => {
+                self.add_to_a(self.registers.b);
+                4
+            }
+            0x81 => {
+                self.add_to_a(self.registers.c);
+                4
+            }
+            0x82 => {
+                self.add_to_a(self.registers.d);
+                4
+            }
+            0x83 => {
+                self.add_to_a(self.registers.e);
+                4
+            }
+            0x84 => {
+                self.add_to_a(self.registers.h);
+                4
+            }
+            0x85 => {
+                self.add_to_a(self.registers.l);
+                4
+            }
+            0x86 => {
+                self.add_to_a(self.memory_bus.read(self.registers.get_hl()));
+                4
+            }
+            0x87 => {
+                self.add_to_a(self.registers.a);
+                4
+            }
             //ADC A
-            0x88 => self.adc_to_a(self.registers.b),
-            0x89 => self.adc_to_a(self.registers.c),
-            0x8A => self.adc_to_a(self.registers.d),
-            0x8B => self.adc_to_a(self.registers.e),
-            0x8C => self.adc_to_a(self.registers.h),
-            0x8D => self.adc_to_a(self.registers.l),
-            0x8E => self.adc_to_a(self.memory_bus.read(self.registers.get_hl())),
-            0x8F => self.adc_to_a(self.registers.a),
+            0x88 => {
+                self.adc_to_a(self.registers.b);
+                4
+            }
+            0x89 => {
+                self.adc_to_a(self.registers.c);
+                4
+            }
+            0x8A => {
+                self.adc_to_a(self.registers.d);
+                4
+            }
+            0x8B => {
+                self.adc_to_a(self.registers.e);
+                4
+            }
+            0x8C => {
+                self.adc_to_a(self.registers.h);
+                4
+            }
+            0x8D => {
+                self.adc_to_a(self.registers.l);
+                4
+            }
+            0x8E => {
+                self.adc_to_a(self.memory_bus.read(self.registers.get_hl()));
+                4
+            }
+            0x8F => {
+                self.adc_to_a(self.registers.a);
+                4
+            }
             //SUB A
-            0x90 => self.sub_from_a(self.registers.b),
-            0x91 => self.sub_from_a(self.registers.c),
-            0x92 => self.sub_from_a(self.registers.d),
-            0x93 => self.sub_from_a(self.registers.e),
-            0x94 => self.sub_from_a(self.registers.h),
-            0x95 => self.sub_from_a(self.registers.l),
-            0x96 => self.sub_from_a(self.memory_bus.read(self.registers.get_hl())),
-            0x97 => self.sub_from_a(self.registers.a),
+            0x90 => {
+                self.sub_from_a(self.registers.b);
+                4
+            }
+            0x91 => {
+                self.sub_from_a(self.registers.c);
+                4
+            }
+            0x92 => {
+                self.sub_from_a(self.registers.d);
+                4
+            }
+            0x93 => {
+                self.sub_from_a(self.registers.e);
+                4
+            }
+            0x94 => {
+                self.sub_from_a(self.registers.h);
+                4
+            }
+            0x95 => {
+                self.sub_from_a(self.registers.l);
+                4
+            }
+            0x96 => {
+                self.sub_from_a(self.memory_bus.read(self.registers.get_hl()));
+                4
+            }
+            0x97 => {
+                self.sub_from_a(self.registers.a);
+                4
+            }
             //SBC A
-            0x98 => self.registers.a = self.sbc(self.registers.b),
-            0x99 => self.registers.a = self.sbc(self.registers.c),
-            0x9A => self.registers.a = self.sbc(self.registers.d),
-            0x9B => self.registers.a = self.sbc(self.registers.e),
-            0x9C => self.registers.a = self.sbc(self.registers.h),
-            0x9D => self.registers.a = self.sbc(self.registers.l),
-            0x9E => self.registers.a = self.sbc(self.memory_bus.read(self.registers.get_hl())),
-            0x9F => self.registers.a = self.sbc(self.registers.a),
+            0x98 => {
+                self.registers.a = self.sbc(self.registers.b);
+                4
+            }
+            0x99 => {
+                self.registers.a = self.sbc(self.registers.c);
+                4
+            }
+            0x9A => {
+                self.registers.a = self.sbc(self.registers.d);
+                4
+            }
+            0x9B => {
+                self.registers.a = self.sbc(self.registers.e);
+                4
+            }
+            0x9C => {
+                self.registers.a = self.sbc(self.registers.h);
+                4
+            }
+            0x9D => {
+                self.registers.a = self.sbc(self.registers.l);
+                4
+            }
+            0x9E => {
+                self.registers.a = self.sbc(self.memory_bus.read(self.registers.get_hl()));
+                4
+            }
+            0x9F => {
+                self.registers.a = self.sbc(self.registers.a);
+                4
+            }
             //AND, XOR, OR, CMP n
             0xA0..=0xBF => {
                 // opcode: 01_xxx_yyy → xxx = operaction, yyy = source
@@ -433,31 +703,39 @@ impl CPU {
                 };
 
                 self.registers.a = result;
+                4
             }
             //RET NZ
             0xC0 => {
                 if !self.registers.f.zero {
-                    self.ret()
-                };
+                    self.ret();
+                    20
+                } else {
+                    8
+                }
             }
             //POP BC
             0xC1 => {
                 let address = self.stack_pop();
                 self.registers.set_bc(address);
+                12
             }
             //JP NZ, n16
             0xC2 => {
                 let address = self.fetch_u16();
                 if !self.registers.f.zero {
                     self.registers.pc = address;
+                    16
+                } else {
+                    12
                 }
             }
             //JUMP
             0xC3 => {
                 let address = self.fetch_u16();
                 self.registers.pc = address;
+                16
             }
-
             //CALL NZ, nn
             0xC4 => {
                 //operand
@@ -468,36 +746,55 @@ impl CPU {
 
                     //jump to operand
                     self.registers.pc = address;
+                    24
+                } else {
+                    12
                 }
             }
             //PUSH BC
             0xC5 => {
                 self.stack_push(self.registers.get_bc());
+                16
             }
             //ADD A, n8
             0xC6 => {
                 let value = self.fetch();
                 self.add_to_a(value);
+                8
             }
             //RST $00H
-            0xC7 => self.rst(opcode),
+            0xC7 => {
+                self.rst(opcode);
+                16
+            }
             //RET Z
             0xC8 => {
                 if self.registers.f.zero {
-                    self.ret()
+                    self.ret();
+                    20
+                } else {
+                    8
                 }
             }
             //RET
-            0xC9 => self.ret(),
+            0xC9 => {
+                self.ret();
+                16
+            }
             //JP Z, n16
             0xCA => {
                 let address = self.fetch_u16();
                 if self.registers.f.zero {
                     self.registers.pc = address;
+                    16
+                } else {
+                    12
                 }
             }
             //PREFIX
             0xCB => {
+                let mut is_hl_target: bool = false;
+                let mut is_bit_operation: bool = false;
                 // opcode: 01_xxx_yyy → xxx = operaction, yyy = source
                 let next_opcode = self.fetch();
 
@@ -508,13 +805,18 @@ impl CPU {
                     3 => self.registers.e,
                     4 => self.registers.h,
                     5 => self.registers.l,
-                    6 => self.memory_bus.read(self.registers.get_hl()), //memory[HL]
+                    6 => {
+                        is_hl_target = true;
+                        self.memory_bus.read(self.registers.get_hl()) //memory[HL]
+                    }
                     7 => self.registers.a,
                     _ => panic!("QUE PASO EN MATCH OPCODE AYUDA"),
                 };
 
                 let result: u8;
+
                 if (0x40..=0x7F).contains(&next_opcode) {
+                    is_bit_operation = true;
                     match next_opcode {
                         0x40..=0x47 => self.bit(src, 0),
                         0x48..=0x4F => self.bit(src, 1),
@@ -574,6 +876,11 @@ impl CPU {
                         *target = result;
                     }
                 }
+                if !is_hl_target {
+                    8
+                } else {
+                    if is_bit_operation { 12 } else { 16 }
+                }
             }
             //CALL Z, nn
             0xCC => {
@@ -582,6 +889,9 @@ impl CPU {
                 if self.registers.f.zero {
                     self.stack_push(self.registers.pc);
                     self.registers.pc = address;
+                    24
+                } else {
+                    12
                 }
             }
             //CALL
@@ -594,30 +904,42 @@ impl CPU {
 
                 //jump to operand
                 self.registers.pc = address;
+                24
             }
             //ADC A, n
             0xCE => {
                 let value = self.fetch();
                 self.adc_to_a(value);
+                8
             }
             //RST $08
-            0xCF => self.rst(opcode),
+            0xCF => {
+                self.rst(opcode);
+                16
+            }
             //RET NC
             0xD0 => {
                 if !self.registers.f.carry {
-                    self.ret()
+                    self.ret();
+                    20
+                } else {
+                    8
                 }
             }
             //POP DE
             0xD1 => {
                 let address = self.stack_pop();
                 self.registers.set_de(address);
+                12
             }
             //JP NC, n16
             0xD2 => {
                 let address = self.fetch_u16();
                 if !self.registers.f.carry {
                     self.registers.pc = address;
+                    16
+                } else {
+                    12
                 }
             }
             //CALL NC, nn
@@ -627,35 +949,51 @@ impl CPU {
                 if !self.registers.f.carry {
                     self.stack_push(self.registers.pc);
                     self.registers.pc = address;
+                    24
+                } else {
+                    12
                 }
             }
             //PUSH DE
             0xD5 => {
                 self.stack_push(self.registers.get_de());
+                16
             }
             //SUB A, n8
             0xD6 => {
                 let value = self.fetch();
                 self.sub_from_a(value);
+                8
             }
             //RST $10
-            0xD7 => self.rst(opcode),
+            0xD7 => {
+                self.rst(opcode);
+                16
+            }
+
             //RET C
             0xD8 => {
                 if self.registers.f.carry {
                     self.ret();
+                    20
+                } else {
+                    8
                 }
             }
             //RETI
             0xD9 => {
                 self.ret();
                 self.ime = true;
+                16
             }
             //JP C, n16
             0xDA => {
                 let address = self.fetch_u16();
                 if self.registers.f.carry {
                     self.registers.pc = address;
+                    16
+                } else {
+                    12
                 }
             }
             //CALL C , nn
@@ -665,42 +1003,57 @@ impl CPU {
                 if self.registers.f.carry {
                     self.stack_push(self.registers.pc);
                     self.registers.pc = address;
+                    24
+                } else {
+                    12
                 }
             }
             //SBC A, n
             0xDE => {
                 let value = self.fetch();
                 self.registers.a = self.sbc(value);
+                8
             }
             //RST $18
-            0xDF => self.rst(opcode),
+            0xDF => {
+                self.rst(opcode);
+                16
+            }
             //LD (0xFF00 + n8), A
             0xE0 => {
                 let offset = self.fetch();
                 self.memory_bus
                     .write(0xFF00 + offset as u16, self.registers.a);
+                12
             }
             //POP HL
             0xE1 => {
                 let address = self.stack_pop();
                 self.registers.set_hl(address);
+                12
             }
             // LD ($FF00+C), A
             0xE2 => {
                 self.memory_bus
                     .write(0xFF00 + self.registers.c as u16, self.registers.a);
+                8
             }
             //PUSH HL
             0xE5 => {
                 self.stack_push(self.registers.get_hl());
+                16
             }
             //AND A, n8
             0xE6 => {
                 let value = self.fetch();
                 self.registers.a = self.a_and(value);
+                8
             }
             //RST $20
-            0xE7 => self.rst(opcode),
+            0xE7 => {
+                self.rst(opcode);
+                16
+            }
             //ADD SP, n8
             0xE8 => {
                 let value = self.fetch();
@@ -714,45 +1067,68 @@ impl CPU {
                 self.registers.f.carry = (self.registers.sp & 0xFF) + (value as u16 & 0xFF) > 0xFF;
 
                 self.registers.sp = result.0;
+                16
             }
             //JP HL
-            0xE9 => self.registers.pc = self.registers.get_hl(),
+            0xE9 => {
+                self.registers.pc = self.registers.get_hl();
+                4
+            }
             //LD (n16), A
             0xEA => {
                 let address = self.fetch_u16();
                 self.memory_bus.write(address, self.registers.a);
+                16
             }
             //XOR A, n8
             0xEE => {
                 let value = self.fetch();
                 self.registers.a = self.a_xor(value);
+                8
             }
             //RST $28
-            0xEF => self.rst(opcode),
+            0xEF => {
+                self.rst(opcode);
+                16
+            }
             //LD A, (0xFF00 + n8)
             0xF0 => {
                 let offset = self.fetch();
                 self.registers.a = self.memory_bus.read(0xFF00 + offset as u16);
+                12
             }
             //POP AF
             0xF1 => {
                 let address = self.stack_pop();
                 self.registers.set_af(address);
+                12
             }
             //LD A, ($FF00 + C)
-            0xF2 => self.registers.a = self.memory_bus.read(0xFF00 + self.registers.c as u16),
-            0xF3 => self.ime = false,
+            0xF2 => {
+                self.registers.a = self.memory_bus.read(0xFF00 + self.registers.c as u16);
+                8
+            }
+            //DI
+            0xF3 => {
+                self.ime = false;
+                4
+            }
             //PUSH AF
             0xF5 => {
                 self.stack_push(self.registers.get_af());
+                16
             }
             //OR A, n8
             0xF6 => {
                 let value = self.fetch();
                 self.registers.a = self.a_or(value);
+                8
             }
             //RST $30
-            0xF7 => self.rst(opcode),
+            0xF7 => {
+                self.rst(opcode);
+                16
+            }
             //LD HL, SP+n
             0xF8 => {
                 let value = self.fetch();
@@ -765,24 +1141,35 @@ impl CPU {
 
                 self.registers
                     .set_hl(self.registers.sp.wrapping_add_signed(value as i8 as i16));
+                12
             }
             //LD SP, HL
             0xF9 => {
                 self.registers.sp = self.registers.get_hl();
+                8
             }
             //LD A, (a16)
             0xFA => {
                 let address = self.fetch_u16();
                 self.registers.a = self.memory_bus.read(address);
+                16
             }
-            0xFB => self.ime = true,
+            //EI
+            0xFB => {
+                self.ime = true;
+                4
+            }
             //CP A, n8
             0xFE => {
                 let operand = self.fetch();
                 self.compare(self.registers.a, operand);
+                8
             }
             //RST $38
-            0xFF => self.rst(opcode),
+            0xFF => {
+                self.rst(opcode);
+                16
+            }
             _ => {
                 panic!(
                     "opcode no implementado: {:#04x} en PC: {:#06x}",
@@ -1228,9 +1615,12 @@ impl MemoryBus {
         self.memory[address as usize]
     }
 
-    pub fn write(&mut self, address: u16, value: u8) {
+    pub fn write(&mut self, address: u16, mut value: u8) {
         if address == 0xFF02 && value == 0x81 {
             print!("{}", self.memory[0xFF01] as char);
+        }
+        if address == 0xFF04 {
+            value = 0
         }
         self.memory[address as usize] = value;
     }
