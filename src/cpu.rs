@@ -1,4 +1,5 @@
-use std::fs;
+use crate::memory::MemoryBus;
+
 const IE_ADDRESS: u16 = 0xFFFF;
 const IF_ADDRESS: u16 = 0xFF0F;
 
@@ -22,7 +23,7 @@ impl CPU {
             halted: false,
         }
     }
-    pub fn step(&mut self) {
+    pub fn step(&mut self) -> u32 {
         let pending = self.memory_bus.read(IE_ADDRESS) & self.memory_bus.read(IF_ADDRESS);
         if pending != 0 {
             self.halted = false;
@@ -52,11 +53,13 @@ impl CPU {
 
         if self.halted {
             self.update_timer(4);
+            4
         } else {
             let op: u8 = self.fetch();
             // println!("PC: {:#06x} OP: {:#04x}", self.registers.pc - 1, op);
             let cycles = self.decode_execute(op) as u32;
             self.update_timer(cycles);
+            cycles
         }
     }
 
@@ -1607,42 +1610,5 @@ impl FlagsRegister {
         self.subtract = ((value >> SUBTRACT_FLAG_BYTE_POISITION) & 0b1) != 0;
         self.half_carry = ((value >> HALF_CARRY_FLAG_BYTE_POSITION) & 0b1) != 0;
         self.carry = ((value >> CARRY_FLAG_BYTE_POSITION) & 0b1) != 0;
-    }
-}
-
-pub const MEMORY_BUS_SIZE: usize = 65536;
-
-pub struct MemoryBus {
-    pub memory: [u8; MEMORY_BUS_SIZE],
-}
-
-impl MemoryBus {
-    pub fn new() -> MemoryBus {
-        MemoryBus {
-            memory: [0; MEMORY_BUS_SIZE],
-        }
-    }
-    pub fn read(&self, address: u16) -> u8 {
-        self.memory[address as usize]
-    }
-
-    pub fn write(&mut self, address: u16, mut value: u8) {
-        if address == 0xFF02 && value == 0x81 {
-            if self.memory[0xFF01] == 0x0A {
-                //line jump
-                println!();
-            } else {
-                print!("{}", self.memory[0xFF01] as char);
-            }
-        }
-        if address == 0xFF04 {
-            value = 0
-        }
-        self.memory[address as usize] = value;
-    }
-
-    pub fn load_rom(&mut self, path: &str) {
-        let bytes = fs::read(path).unwrap();
-        self.memory[..bytes.len()].copy_from_slice(&bytes);
     }
 }
