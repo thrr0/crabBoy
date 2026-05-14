@@ -1,4 +1,4 @@
-use crate::memory::MemoryBus;
+use crate::{cpu::IF_ADDRESS, memory::MemoryBus};
 
 const SCREEN_SIZE: usize = 160 * 144;
 
@@ -23,6 +23,8 @@ impl PPU {
 
     pub fn step(&mut self, memory_bus: &mut MemoryBus, cycles: u32) {
         self.cycles += cycles;
+
+        let lcdc = memory_bus.read(0xFF40);
         match self.mode {
             2 => {
                 //OAM scan
@@ -34,7 +36,10 @@ impl PPU {
             3 => {
                 //drawing
                 if self.cycles > 172 {
-                    self.draw_line(memory_bus);
+                    if lcdc & 0x80 != 0 {
+                        // bit 7 - lcd on/off
+                        self.draw_line(memory_bus, lcdc);
+                    }
                     self.mode = 0;
                     self.cycles = 0;
                 }
@@ -49,6 +54,8 @@ impl PPU {
                         self.mode = 2;
                     } else if self.ly == 144 {
                         self.mode = 1;
+                        let if_flag = memory_bus.read(IF_ADDRESS);
+                        memory_bus.write(IF_ADDRESS, if_flag | 0x01)
                     }
                 }
             }
@@ -58,6 +65,7 @@ impl PPU {
                     self.ly = 0;
                     memory_bus.write(0xFF44, self.ly);
                     self.mode = 2;
+
                     self.cycles = 0;
                     self.frame_ready = true;
                 }
@@ -66,8 +74,11 @@ impl PPU {
         }
     }
 
-    fn draw_line(&mut self, memory_bus: &MemoryBus) {
+    fn draw_line(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
         // each screen tile is 8px. 160/8 = 20 tiles per horizontal line.
+        if lcdc & 0x01 == 0 {
+            return;
+        }
         let scy = memory_bus.read(0xFF42);
         let scx = memory_bus.read(0xFF43);
 
@@ -76,10 +87,19 @@ impl PPU {
         for x in 0..20u8 {
             let tile_x: u8 = (x * 8 + scx) / 8;
             let tile_map_index = (tile_y as u16 % 32) * 32 + (tile_x as u16 % 32);
-            let tile_id = memory_bus.read(0x9800 + tile_map_index as u16);
 
-            let tile_data_address: u16 =
-                0x8000 + tile_id as u16 * 16 + self.ly.overflowing_add(scy).0 as u16 % 8 * 2;
+            let tile_id: u8 = if lcdc & 0x08 != 0 {
+                memory_bus.read(0x9C00 + tile_map_index as u16)
+            } else {
+                memory_bus.read(0x9800 + tile_map_index as u16)
+            };
+
+            let tile_data_address: u16 = if lcdc & 0x10 != 0 {
+                0x8000 + tile_id as u16 * 16 + self.ly.overflowing_add(scy).0 as u16 % 8 * 2
+            } else {
+                0x9000u16.wrapping_add((tile_id as i8 as i16 as u16).wrapping_mul(16))
+                    + self.ly.overflowing_add(scy).0 as u16 % 8 * 2
+            };
 
             let tile_data_low_byte: u8 = memory_bus.read(tile_data_address);
             let tile_data_high_byte: u8 = memory_bus.read(tile_data_address + 1);

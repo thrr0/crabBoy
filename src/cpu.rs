@@ -1,7 +1,7 @@
 use crate::memory::MemoryBus;
 
-const IE_ADDRESS: u16 = 0xFFFF;
-const IF_ADDRESS: u16 = 0xFF0F;
+pub const IE_ADDRESS: u16 = 0xFFFF;
+pub const IF_ADDRESS: u16 = 0xFF0F;
 
 pub struct CPU {
     pub registers: Registers,
