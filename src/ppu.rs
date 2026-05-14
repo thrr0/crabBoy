@@ -79,6 +79,10 @@ impl PPU {
         if lcdc & 0x01 == 0 {
             return;
         }
+        if lcdc & 0x02 != 0 {
+            self.draw_sprites(memory_bus, lcdc);
+        }
+
         let scy = memory_bus.read(0xFF42);
         let scx = memory_bus.read(0xFF43);
 
@@ -109,6 +113,25 @@ impl PPU {
                     | (tile_data_low_byte >> (7 - pixel) & 1);
                 self.framebuffer[self.ly as usize * 160 + x as usize * 8 + pixel as usize] = color;
             }
+        }
+    }
+
+    fn draw_sprites(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
+        //each sprite is stored in 4 bytes, 40 sprites can be stored
+        //sprite 0 = 0xFE00: [Y][X][tile][attrs]
+        // sprite 1 = 0xFE04: [Y][X][tile][attrs]
+        // sprite 2 = 0xFE08: [Y][X][tile][attrs]
+        // ...
+        // sprite 39 = 0xFE9C: [Y][X][tile][attrs]
+
+        for sprite_index in 0..39 {
+            let base = 0xFE00 + sprite_index * 4;
+            let sprite_y = memory_bus.read(base);
+            let sprite_x = memory_bus.read(base + 1);
+            let tile_id = memory_bus.read(base + 2);
+            let attributes = memory_bus.read(base + 3);
+
+            if sprite_y <= self.ly + 16 && self.ly + 16 < sprite_y + 8 {}
         }
     }
 }
