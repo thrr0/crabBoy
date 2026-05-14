@@ -180,6 +180,11 @@ impl CPU {
                 self.registers.set_hl(result);
                 8
             }
+            //LD A, (BC)
+            0x0A => {
+                self.registers.a = self.memory_bus.read(self.registers.get_bc());
+                8
+            }
             //DEC BC
             0x0B => {
                 let value = self.dec_u16(self.registers.get_bc());

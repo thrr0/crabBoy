@@ -6,7 +6,8 @@ pub struct PPU {
     pub mode: u8, // (0-3)
     pub cycles: u32,
     pub framebuffer: [u8; SCREEN_SIZE],
-    pub ly: u8,
+    pub ly: u8, //current line index
+    pub frame_ready: bool,
 }
 
 impl PPU {
@@ -16,6 +17,7 @@ impl PPU {
             cycles: 0,
             framebuffer: [0; SCREEN_SIZE],
             ly: 0,
+            frame_ready: false,
         }
     }
 
@@ -23,18 +25,22 @@ impl PPU {
         self.cycles += cycles;
         match self.mode {
             2 => {
+                //OAM scan
                 if self.cycles > 80 {
                     self.mode = 3;
                     self.cycles = 0;
                 }
             }
             3 => {
+                //drawing
                 if self.cycles > 172 {
+                    self.draw_line(memory_bus);
                     self.mode = 0;
                     self.cycles = 0;
                 }
             }
             0 => {
+                //h-blank
                 if self.cycles > 204 {
                     self.cycles = 0;
                     self.ly += 1;
@@ -47,14 +53,42 @@ impl PPU {
                 }
             }
             1 => {
+                //v-blank
                 if self.cycles > 4560 {
                     self.ly = 0;
                     memory_bus.write(0xFF44, self.ly);
                     self.mode = 2;
                     self.cycles = 0;
+                    self.frame_ready = true;
                 }
             }
             _ => unreachable!(),
+        }
+    }
+
+    fn draw_line(&mut self, memory_bus: &MemoryBus) {
+        // each screen tile is 8px. 160/8 = 20 tiles per horizontal line.
+        let scy = memory_bus.read(0xFF42);
+        let scx = memory_bus.read(0xFF43);
+
+        let tile_y = (self.ly.wrapping_add(scy)) / 8;
+
+        for x in 0..20u8 {
+            let tile_x: u8 = (x * 8 + scx) / 8;
+            let tile_map_index = (tile_y as u16 % 32) * 32 + (tile_x as u16 % 32);
+            let tile_id = memory_bus.read(0x9800 + tile_map_index as u16);
+
+            let tile_data_address: u16 =
+                0x8000 + tile_id as u16 * 16 + self.ly.overflowing_add(scy).0 as u16 % 8 * 2;
+
+            let tile_data_low_byte: u8 = memory_bus.read(tile_data_address);
+            let tile_data_high_byte: u8 = memory_bus.read(tile_data_address + 1);
+
+            for pixel in 0..8 {
+                let color = (tile_data_high_byte >> (7 - pixel) & 1) << 1
+                    | (tile_data_low_byte >> (7 - pixel) & 1);
+                self.framebuffer[self.ly as usize * 160 + x as usize * 8 + pixel as usize] = color;
+            }
         }
     }
 }
