@@ -12,7 +12,7 @@ fn main() {
     let mut ppu = PPU::new();
 
     let mut window = Window::new("CrabBoy", 160 * 3, 144 * 3, WindowOptions::default()).unwrap();
-    //cpu.memory_bus.load_rom("roms/cpu_instrs.gb");
+    // cpu.memory_bus.load_rom("roms/cpu_instrs.gb");
     // cpu.memory_bus.load_rom("roms/individual/01-special.gb");
     // cpu.memory_bus.load_rom("roms/individual/02-interrupts.gb");
     // cpu.memory_bus.load_rom("roms/individual/03-op sp,hl.gb");
@@ -22,7 +22,10 @@ fn main() {
     // cpu.memory_bus.load_rom("roms/individual/08-misc instrs.gb");
     // cpu.memory_bus.load_rom("roms/individual/09-op r,r.gb");
     // cpu.memory_bus.load_rom("roms/individual/10-bit ops.gb");
-    cpu.memory_bus.load_rom("roms/individual/11-op a,(hl).gb");
+    // cpu.memory_bus.load_rom("roms/individual/11-op a,(hl).gb");
+    // cpu.memory_bus.load_rom("roms/games/tetris.gb");
+    cpu.memory_bus.load_rom("roms/games/dr mario.gb");
+    // cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
 
     loop {
         let cycles = cpu.step();
