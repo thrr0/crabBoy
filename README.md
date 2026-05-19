@@ -1,12 +1,12 @@
 # CrabBoy
 
-Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. 
+Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. Passes dmg-acid2.
 
 ---
 
 ## Status
 
-### CPU 
+### CPU
 - Full SM83 instruction set (all opcodes + CB prefix)
 - Registers, flags, fetch/decode/execute loop
 - Interrupts (V-Blank, LCD STAT, Timer, Serial, Joypad), IME, HALT
@@ -14,14 +14,14 @@ Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests.
 
 ### PPU (in progress)
 - [x] Background rendering (SCX/SCY scroll, LCDC bits 0/3/4/7)
-- [x] Sprites 8x8 (OAM, X/Y flip, 10-per-line limit)
+- [x] Sprites 8x8 and 8x16 (OAM, X/Y flip, palette, priority, 10-per-line limit)
 - [x] OAM DMA (0xFF46)
-- [ ] Window layer (LCDC bits 5/6, WX/WY)
-- [ ] Sprite palette (OBP0/OBP1, attribute bit 4)
-- [ ] Sprite priority (attribute bit 7)
-- [ ] 8x16 sprites (LCDC bit 2)
-- [ ] Background palette (BGP)
-- [ ] LCD STAT interrupt (0xFF41, LYC)
+- [x] Window layer (LCDC bits 5/6, WX/WY, internal line counter)
+- [x] Sprite palette (OBP0/OBP1, attribute bit 4)
+- [x] Sprite priority (attribute bit 7, X-coordinate priority)
+- [x] Background palette (BGP)
+- [x] LCD STAT interrupt (0xFF41, LYC)
+- [ ] LCDC bit 0 mid-frame (background disable per scanline)
 
 ### Input
 - [ ] Joypad (0xFF00)
@@ -44,7 +44,7 @@ src/
   main.rs       — window, game loop, ROM loading
   cpu.rs        — SM83 CPU, registers, interrupts, timer
   memory.rs     — flat 64KB memory bus, OAM DMA
-  ppu.rs        — PPU state machine, background, sprites
+  ppu.rs        — PPU state machine, background, sprites, window
 roms/
   individual/   — blargg cpu_instrs test ROMs
   games/

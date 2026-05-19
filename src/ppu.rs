@@ -1,5 +1,3 @@
-use std::mem;
-
 use crate::{cpu::IF_ADDRESS, memory::MemoryBus};
 
 const SCREEN_SIZE: usize = 160 * 144;
@@ -184,6 +182,7 @@ impl PPU {
     fn draw_window(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
         let (wx, wy) = (memory_bus.read(0xFF4B), memory_bus.read(0xFF4A));
 
+        let mut window_drawn = false;
         for x in 0..160 {
             if x + 7 >= wx && self.ly >= wy {
                 let tile_x = x.wrapping_sub(wx.wrapping_sub(7)) / 8;
@@ -210,10 +209,12 @@ impl PPU {
                 let pixel = (x - (wx - 7)) % 8;
                 let color = (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1);
                 self.framebuffer[self.ly as usize * 160 + x as usize] = color;
+
+                window_drawn = true;
             }
         }
 
-        if self.ly >= wy {
+        if self.ly >= wy && window_drawn {
             self.w_counter += 1
         };
     }
@@ -278,7 +279,7 @@ impl PPU {
         }
     }
 
-    fn draw_sprites(&mut self, memory_bus: &MemoryBus, _lcdc: u8) {
+    fn draw_sprites(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
         // OAM (Object Attribute Memory) at 0xFE00–0xFE9F stores data for up to 40 sprites.
         // Each sprite is 4 bytes: [Y position, X position, tile index, attributes]
         //
@@ -288,6 +289,9 @@ impl PPU {
         // This allows sprites to enter the screen partially from any edge.
 
         let mut count = 0;
+        let mut sprites: Vec<u16> = Vec::new();
+        let height = if lcdc & 0x04 != 0 { 16 } else { 8 };
+
         for sprite_index in 0..40u16 {
             // Hardware limitation: only 10 sprites can appear on the same scanline.
             // If more than 10 intersect, the ones with higher OAM index are dropped.
@@ -297,53 +301,77 @@ impl PPU {
 
             let base = 0xFE00 + sprite_index * 4;
             let sprite_y = memory_bus.read(base);
+            // Check if this sprite overlaps the current scanline.
+            // With the Y offset, the sprite covers screen rows (sprite_y - 16) to (sprite_y - 9).
+            if sprite_y <= self.ly + 16 && self.ly + 16 < sprite_y + height {
+                count += 1;
+                sprites.push(sprite_index);
+            }
+        }
+
+        sprites.sort_by_key(|&i| {
+            let base = 0xFE00 + i * 4;
+            memory_bus.read(base + 1)
+        });
+        for sprite in sprites.iter().rev() {
+            let base = 0xFE00 + sprite * 4;
+            let sprite_y = memory_bus.read(base);
             let sprite_x = memory_bus.read(base + 1);
             let tile_id = memory_bus.read(base + 2);
             let attributes = memory_bus.read(base + 3);
-            // Check if this sprite overlaps the current scanline.
-            // With the Y offset, the sprite covers screen rows (sprite_y - 16) to (sprite_y - 9).
-            if sprite_y <= self.ly + 16 && self.ly + 16 < sprite_y + 8 {
-                count += 1;
 
-                let obp = if attributes & 0x10 != 0 {
-                    //obp1
-                    memory_bus.read(0xFF49)
+            let obp = if attributes & 0x10 != 0 {
+                //obp1
+                memory_bus.read(0xFF49)
+            } else {
+                //obp0
+                memory_bus.read(0xFF48)
+            };
+
+            let mut effective_tile_id = tile_id;
+
+            // Which row within the tile are we drawing?
+            // (ly + 16 - sprite_y) gives the offset from the top of the sprite (0-7).
+            let mut row = (self.ly + 16 - sprite_y) % height;
+
+            if attributes & 0x40 != 0 {
+                //y flip
+                row = ((height as u16 - 1) - row as u16) as u8;
+            }
+
+            if height == 16 {
+                if row < 8 {
+                    effective_tile_id = tile_id & 0xFE;
                 } else {
-                    //obp0
-                    memory_bus.read(0xFF48)
+                    effective_tile_id = tile_id | 0x01;
+                    row -= 8;
+                }
+            }
+
+            let tile_data_address = 0x8000 + effective_tile_id as u16 * 16 + row as u16 * 2;
+
+            let low = memory_bus.read(tile_data_address);
+            let high = memory_bus.read(tile_data_address + 1);
+
+            for pixel in 0..8u8 {
+                let pixel_color = if attributes & 0x20 != 0 {
+                    (high >> (pixel) & 1) << 1 | (low >> (pixel) & 1)
+                } else {
+                    (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1)
                 };
 
-                // Which row within the tile are we drawing?
-                // (ly + 16 - sprite_y) gives the offset from the top of the sprite (0-7).
-                let mut row = (self.ly + 16 - sprite_y) % 8;
-                if attributes & 0x40 != 0 {
-                    //y flip
-                    row = 7 - row;
-                }
-                let addr = 0x8000 + tile_id as u16 * 16 + row as u16 * 2;
-                let low = memory_bus.read(addr);
-                let high = memory_bus.read(addr + 1);
+                let color = (obp >> (pixel_color * 2)) & 0x03;
+                // Color 0 is always transparent for sprites (unlike background where it's a real color)
+                if color != 0 {
+                    let screen_x = sprite_x as usize + pixel as usize - 8;
 
-                for pixel in 0..8u8 {
-                    let pixel_color = if attributes & 0x20 != 0 {
-                        (high >> (pixel) & 1) << 1 | (low >> (pixel) & 1)
-                    } else {
-                        (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1)
-                    };
-
-                    let color = (obp >> (pixel_color * 2)) & 0x03;
-                    // Color 0 is always transparent for sprites (unlike background where it's a real color)
-                    if color != 0 {
-                        let screen_x = sprite_x as usize + pixel as usize - 8;
-
-                        let framebuffer_index = self.ly as usize * 160 + screen_x;
-                        if attributes & 0x80 != 0 {
-                            if self.framebuffer[framebuffer_index] == 0 {
-                                self.framebuffer[framebuffer_index] = color;
-                            }
-                        } else {
+                    let framebuffer_index = self.ly as usize * 160 + screen_x;
+                    if attributes & 0x80 != 0 {
+                        if self.framebuffer[framebuffer_index] == 0 {
                             self.framebuffer[framebuffer_index] = color;
                         }
+                    } else {
+                        self.framebuffer[framebuffer_index] = color;
                     }
                 }
             }
