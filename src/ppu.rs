@@ -11,6 +11,7 @@ pub struct PPU {
     pub ly: u8, // Current scanline being drawn (0-153)
     pub frame_ready: bool,
     pub w_counter: u8,
+    pub bg_raw: [u8; SCREEN_SIZE],
 }
 
 impl PPU {
@@ -22,6 +23,7 @@ impl PPU {
             ly: 0,
             frame_ready: false,
             w_counter: 0,
+            bg_raw: [0; SCREEN_SIZE],
         }
     }
 
@@ -42,6 +44,12 @@ impl PPU {
         //   bit 0: background enable
         let lcdc = memory_bus.read(0xFF40);
 
+        if lcdc & 0x80 == 0 {
+            self.w_counter = 0;
+            self.ly = 0;
+            self.cycles = 0;
+            self.mode = 2;
+        }
         // The PPU draws one scanline at a time. For each of the 144 visible lines,
         // it goes through 3 modes in order:
         //   Mode 2 - OAM Scan  (80 cycles):  PPU looks at OAM to find sprites on this line
@@ -160,15 +168,24 @@ impl PPU {
     fn draw_line(&mut self, memory_bus: &MemoryBus) {
         //updated lcdc value needed per line
         let lcdc = memory_bus.read(0xFF40);
-
+        let (wx, wy) = (memory_bus.read(0xFF4B), memory_bus.read(0xFF4A));
+        // eprintln!(
+        //     "lcdc={:#04x} wy={} wx ={}",
+        //     lcdc,
+        //     memory_bus.read(0xFF4A),
+        //     memory_bus.read(0xFF4B)
+        // );
         // eprintln!("lcdc={:#04x} ly={}", lcdc, self.ly);
 
+        if self.ly == 133 {
+            eprintln!("lcdc 0x20: {}", lcdc & 0x20);
+        }
         if lcdc & 0x01 != 0 {
             self.draw_background(memory_bus, lcdc);
         }
 
         if lcdc & 0x20 != 0 {
-            self.draw_window(memory_bus, lcdc);
+            self.draw_window(memory_bus, wx, wy, lcdc);
         }
 
         if lcdc & 0x02 != 0 {
@@ -176,11 +193,13 @@ impl PPU {
         }
     }
 
-    fn draw_window(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
-        let (wx, wy) = (memory_bus.read(0xFF4B), memory_bus.read(0xFF4A));
-
+    fn draw_window(&mut self, memory_bus: &MemoryBus, wx: u8, wy: u8, lcdc: u8) {
         let mut window_drawn = false;
+
         for x in 0..160 {
+            if self.ly == 133 && x == 89 {
+                eprintln!("wx: {} wy:{} ly: {}", wx, wy, self.ly);
+            }
             if x + 7 >= wx && self.ly >= wy {
                 let tile_x = x.wrapping_sub(wx.wrapping_sub(7)) / 8;
                 let tile_y = self.w_counter / 8;
@@ -203,7 +222,8 @@ impl PPU {
                 let low = memory_bus.read(tile_data_address);
                 let high = memory_bus.read(tile_data_address + 1);
 
-                let pixel = (x - (wx - 7)) % 8;
+                let pixel = (x.wrapping_sub(wx.wrapping_sub(7))) % 8;
+
                 let color = (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1);
                 self.framebuffer[self.ly as usize * 160 + x as usize] = color;
 
@@ -275,6 +295,7 @@ impl PPU {
                 let screen_x = (x * 8 + pixel).wrapping_sub(scx % 8);
 
                 if (0..160).contains(&screen_x) {
+                    self.bg_raw[self.ly as usize * 160 + screen_x as usize] = pixel_color;
                     self.framebuffer[self.ly as usize * 160 + screen_x as usize] = color;
                 }
             }
@@ -294,6 +315,8 @@ impl PPU {
         let mut sprites: Vec<u16> = Vec::new();
         let height = if lcdc & 0x04 != 0 { 16 } else { 8 };
 
+        // eprintln!("height: {:#} \n lcdc: {:#04x}", height, lcdc);
+
         for sprite_index in 0..40u16 {
             // Hardware limitation: only 10 sprites can appear on the same scanline.
             // If more than 10 intersect, the ones with higher OAM index are dropped.
@@ -303,9 +326,19 @@ impl PPU {
 
             let base = 0xFE00 + sprite_index * 4;
             let sprite_y = memory_bus.read(base);
+            // eprintln!("sprite_y: {:#04x}", sprite_y);
+
+            // let intersects = sprite_y as u16 <= self.ly as u16 + 16
+            //     && self.ly as u16 + 16 < sprite_y as u16 + height as u16;
+            // eprintln!(
+            //     "ly={} sprite_y={} intersects={}",
+            //     self.ly, sprite_y, intersects
+            // );
             // Check if this sprite overlaps the current scanline.
             // With the Y offset, the sprite covers screen rows (sprite_y - 16) to (sprite_y - 9).
-            if sprite_y <= self.ly + 16 && self.ly + 16 < sprite_y + height {
+            if sprite_y as u16 <= self.ly as u16 + 16
+                && self.ly as u16 + 16 < sprite_y as u16 + height as u16
+            {
                 count += 1;
                 sprites.push(sprite_index);
             }
@@ -315,12 +348,16 @@ impl PPU {
             let base = 0xFE00 + i * 4;
             memory_bus.read(base + 1)
         });
+
+        // eprintln!("sprites: {:#04x}", sprites.iter().len());
         for sprite in sprites.iter().rev() {
             let base = 0xFE00 + sprite * 4;
             let sprite_y = memory_bus.read(base);
             let sprite_x = memory_bus.read(base + 1);
             let tile_id = memory_bus.read(base + 2);
             let attributes = memory_bus.read(base + 3);
+
+            // eprintln!("attributes & 0x80: {}", attributes & 0x80);
 
             let obp = if attributes & 0x10 != 0 {
                 //obp1
@@ -363,14 +400,18 @@ impl PPU {
                 };
 
                 let color = (obp >> (pixel_color * 2)) & 0x03;
+
+                // eprintln!("color: {} \n pixel_color: {}", color, pixel_color);
                 // Color 0 is always transparent for sprites (unlike background where it's a real color)
-                if color != 0 {
+                if pixel_color != 0 {
                     let screen_x = sprite_x.wrapping_sub(8) as usize + pixel as usize;
 
+                    // eprintln!("screen x: {} \n sprite x: {} ", screen_x, sprite_x);
                     if (0..160).contains(&screen_x) {
                         let framebuffer_index = self.ly as usize * 160 + screen_x;
+
                         if attributes & 0x80 != 0 {
-                            if self.framebuffer[framebuffer_index] == 0 {
+                            if self.bg_raw[framebuffer_index] == 0 {
                                 self.framebuffer[framebuffer_index] = color;
                             }
                         } else {

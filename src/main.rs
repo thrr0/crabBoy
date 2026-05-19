@@ -34,8 +34,11 @@ fn main() {
     // cpu.memory_bus.load_rom("roms/games/pokemon yellow.gb");
     cpu.memory_bus.load_rom("roms/games/super mario land.gb");
     // cpu.memory_bus.load_rom("roms/games/zelda.gb");
+    // cpu.memory_bus.load_rom("roms/games/donkey kong 3.gb");
+    // cpu.memory_bus.load_rom("roms/games/metroid 2.gb");
 
     let frame_duration = Duration::from_nanos(16_666_667);
+    // let frame_duration = Duration::from_nanos(512_222_223);
     let mut last_frame = Instant::now();
     loop {
         let cycles = cpu.step();

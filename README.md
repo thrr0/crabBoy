@@ -1,6 +1,5 @@
 # CrabBoy
-
-Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. Passes dmg-acid2.
+Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. Passes dmg-acid2. Runs Tetris, Dr. Mario, Super Mario Land.
 
 ---
 
@@ -12,8 +11,8 @@ Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. P
 - Interrupts (V-Blank, LCD STAT, Timer, Serial, Joypad), IME, HALT
 - Timer (DIV, TIMA, TMA, TAC)
 
-### PPU (in progress)
-- [x] Background rendering (SCX/SCY scroll, LCDC bits 0/3/4/7)
+### PPU
+- [x] Background rendering (SCX/SCY scroll with fine offset, LCDC bits 0/3/4/7)
 - [x] Sprites 8x8 and 8x16 (OAM, X/Y flip, palette, priority, 10-per-line limit)
 - [x] OAM DMA (0xFF46)
 - [x] Window layer (LCDC bits 5/6, WX/WY, internal line counter)
@@ -21,13 +20,12 @@ Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. P
 - [x] Sprite priority (attribute bit 7, X-coordinate priority)
 - [x] Background palette (BGP)
 - [x] LCD STAT interrupt (0xFF41, LYC)
-- [ ] LCDC bit 0 mid-frame (background disable per scanline)
 
 ### Input
-- [ ] Joypad (0xFF00)
+- [x] Joypad (0xFF00)
 
 ### MBC
-- [ ] MBC1
+- [x] MBC1
 - [ ] MBC2
 - [ ] MBC3 (+ RTC)
 - [ ] MBC5
@@ -38,12 +36,11 @@ Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. P
 ---
 
 ## Project Structure
-
 ```
 src/
   main.rs       — window, game loop, ROM loading
   cpu.rs        — SM83 CPU, registers, interrupts, timer
-  memory.rs     — flat 64KB memory bus, OAM DMA
+  memory.rs     — memory bus, OAM DMA, joypad, MBC
   ppu.rs        — PPU state machine, background, sprites, window
 roms/
   individual/   — blargg cpu_instrs test ROMs
@@ -51,15 +48,12 @@ roms/
 ```
 
 ## Running
-
 ```bash
 cargo run
 ```
-
 Change the `load_rom` call in `main.rs` to switch ROMs.
 
 ## References
-
 | Resource | Purpose |
 |----------|---------|
 | [Pan Docs](https://gbdev.io/pandocs/) | Hardware reference |

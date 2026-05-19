@@ -7,7 +7,7 @@ pub struct MemoryBus {
     pub joypad: JoyPad,
     pub rom: Vec<u8>,
     pub mbc_type: u8,
-    pub rom_bank: u8,
+    pub rom_bank: u16,
 }
 
 impl MemoryBus {
@@ -22,7 +22,13 @@ impl MemoryBus {
     }
     pub fn read(&self, address: u16) -> u8 {
         let mut value = if (0x4000..=0x7FFF).contains(&address) {
-            self.rom[self.rom_bank as usize * 0x4000 + (address as usize - 0x4000)]
+            let index = self.rom_bank as usize * 0x4000 + (address as usize - 0x4000);
+            // eprintln!("rom_bank: {:#04x}", self.rom_bank);
+            if index < self.rom.len() {
+                self.rom[index]
+            } else {
+                0xFF
+            }
         } else {
             self.memory[address as usize]
         };
@@ -65,10 +71,23 @@ impl MemoryBus {
 
     pub fn write(&mut self, address: u16, mut value: u8) {
         if (0x2000..=0x3FFF).contains(&address) {
-            self.rom_bank = value & 0x1F;
-            eprintln!("rom bank= {:#04}", self.rom_bank);
-            if self.rom_bank == 0 {
-                self.rom_bank = 1;
+            match self.mbc_type {
+                0x00 => {}
+                0x01..=0x03 => {
+                    self.rom_bank = value as u16 & 0x1F;
+                    // eprintln!("rom bank write= {:#04x}", self.rom_bank);
+                    if self.rom_bank == 0 {
+                        self.rom_bank = 1;
+                    }
+                }
+                0x19..=0x1E => {
+                    if address <= 0x2FFF {
+                        self.rom_bank = (self.rom_bank & 0x100) | value as u16;
+                    } else {
+                        self.rom_bank = (self.rom_bank & 0xFF) | ((value as u16 & 0x01) << 8);
+                    }
+                }
+                _ => panic!("wrong mbc"),
             }
         } else {
             if address == 0xFF46 {
@@ -79,17 +98,26 @@ impl MemoryBus {
                 }
             }
 
-            // not accessed by the game
+            // not written by the game, trying to resets it
             if address == 0xff04 {
                 value = 0
             }
+
+            //mode 3 locks vram
+            // if (0x8000..=0x9FFF).contains(&address) {
+            //     if (self.memory[0xFF41] & 0x03) == 3 {
+            //         return;
+            //     }
+            // }
             self.memory[address as usize] = value;
         }
     }
 
     pub fn load_rom(&mut self, path: &str) {
-        let bytes = fs::read(path).unwrap();
-        self.rom = bytes;
+        self.rom = fs::read(path).unwrap();
+        eprintln!("rom_bank: {:#04x}", self.rom[0x0147]);
+        // eprintln!("0x0148: {:#04x}", self.rom[0x0148]);
+        // eprintln!("rom.len: {:#04x}", self.rom.len());
         self.mbc_type = self.rom[0x0147];
         self.memory[0x0000..0x4000].copy_from_slice(&self.rom[0x0000..0x4000]);
     }
