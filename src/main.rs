@@ -24,8 +24,8 @@ fn main() {
     // cpu.memory_bus.load_rom("roms/individual/10-bit ops.gb");
     // cpu.memory_bus.load_rom("roms/individual/11-op a,(hl).gb");
     // cpu.memory_bus.load_rom("roms/games/tetris.gb");
-    cpu.memory_bus.load_rom("roms/games/dr mario.gb");
-    // cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
+    // cpu.memory_bus.load_rom("roms/games/dr mario.gb");
+    cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
 
     loop {
         let cycles = cpu.step();

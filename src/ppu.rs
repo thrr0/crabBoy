@@ -1,3 +1,5 @@
+use std::mem;
+
 use crate::{cpu::IF_ADDRESS, memory::MemoryBus};
 
 const SCREEN_SIZE: usize = 160 * 144;
@@ -56,15 +58,17 @@ impl PPU {
                 // but we do it directly in draw_sprites() for simplicity
                 if self.cycles > 80 {
                     self.mode = 3;
+                    self.update_stat_mode(memory_bus, 3);
                     self.cycles = 0;
                 }
             }
             3 => {
                 if self.cycles > 172 {
                     if lcdc & 0x80 != 0 {
-                        self.draw_line(memory_bus, lcdc);
+                        self.draw_line(memory_bus);
                     }
                     self.mode = 0;
+                    self.update_stat_mode(memory_bus, 0);
                     self.cycles = 0;
                 }
             }
@@ -75,10 +79,13 @@ impl PPU {
                     // LY (0xFF44) is a read-only register the game reads to know
                     // which line is currently being drawn
                     memory_bus.write(0xFF44, self.ly);
+                    self.check_lyc(memory_bus);
                     if self.ly < 144 {
                         self.mode = 2;
+                        self.update_stat_mode(memory_bus, 2);
                     } else if self.ly == 144 {
                         self.mode = 1;
+                        self.update_stat_mode(memory_bus, 1);
                         // Request V-Blank interrupt so the game knows the frame is done.
                         // Games use this moment to update graphics, input, game logic, etc.
                         let if_flag = memory_bus.read(IF_ADDRESS);
@@ -91,11 +98,14 @@ impl PPU {
                     self.cycles = 0;
                     self.ly += 1;
                     memory_bus.write(0xFF44, self.ly);
+                    self.check_lyc(memory_bus);
                     if self.ly == 153 {
                         self.ly = 0;
-                        self.w_counter = 0;
                         memory_bus.write(0xFF44, self.ly);
+                        self.check_lyc(memory_bus);
+                        self.w_counter = 0;
                         self.mode = 2;
+                        self.update_stat_mode(memory_bus, 2);
                         self.cycles = 0;
                         self.frame_ready = true;
                     }
@@ -105,13 +115,110 @@ impl PPU {
         }
     }
 
-    fn draw_line(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
-        // eprintln!("draw_line ly={} lcdc={:#04x}", self.ly, lcdc);
-        // LCDC bit 0: if 0, background is disabled — nothing to draw
-        if lcdc & 0x01 == 0 {
-            return;
+    fn update_stat_mode(&mut self, memory_bus: &mut MemoryBus, new_mode: u8) {
+        let lcd_stat = memory_bus.read(0xFF41);
+        let new_stat = (lcd_stat & 0xFC) | new_mode;
+        memory_bus.write(0xFF41, new_stat);
+
+        let interrupt_flag = memory_bus.read(IF_ADDRESS);
+        eprintln!("STAT={:#04x}", lcd_stat);
+        eprintln!("IE={:#04x}", memory_bus.read(0xFFFF));
+        match new_mode {
+            0 => {
+                if lcd_stat & 0x8 != 0 {
+                    eprintln!("STAT interrupt fired mode={}", new_mode);
+                    memory_bus.write(IF_ADDRESS, interrupt_flag | 0x2);
+                }
+            }
+            1 => {
+                if lcd_stat & 0x10 != 0 {
+                    eprintln!("STAT interrupt fired mode={}", new_mode);
+                    memory_bus.write(IF_ADDRESS, interrupt_flag | 0x2);
+                }
+            }
+            2 => {
+                if lcd_stat & 0x20 != 0 {
+                    eprintln!("STAT interrupt fired mode={}", new_mode);
+                    memory_bus.write(IF_ADDRESS, interrupt_flag | 0x2);
+                }
+            }
+            3 => {}
+            _ => unreachable!(),
+        };
+    }
+
+    fn check_lyc(&mut self, memory_bus: &mut MemoryBus) {
+        let lyc = memory_bus.read(0xFF45);
+        let lcd_stat = memory_bus.read(0xFF41);
+        if self.ly == lyc {
+            memory_bus.write(0xFF41, (lcd_stat & 0xFC) | 0x04);
+
+            if lcd_stat & 0x40 != 0 {
+                let interrupt_flag = memory_bus.read(IF_ADDRESS);
+                memory_bus.write(IF_ADDRESS, interrupt_flag | 0x2);
+            }
+        } else {
+            memory_bus.write(0xFF41, lcd_stat & !0x04);
+        }
+    }
+
+    fn draw_line(&mut self, memory_bus: &MemoryBus) {
+        //updated lcdc value needed per line
+        let lcdc = memory_bus.read(0xFF40);
+
+        eprintln!("lcdc={:#04x} ly={}", lcdc, self.ly);
+
+        if lcdc & 0x01 != 0 {
+            self.draw_background(memory_bus, lcdc);
         }
 
+        if lcdc & 0x20 != 0 {
+            self.draw_window(memory_bus, lcdc);
+        }
+
+        if lcdc & 0x02 != 0 {
+            self.draw_sprites(memory_bus, lcdc);
+        }
+    }
+
+    fn draw_window(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
+        let (wx, wy) = (memory_bus.read(0xFF4B), memory_bus.read(0xFF4A));
+
+        for x in 0..160 {
+            if x + 7 >= wx && self.ly >= wy {
+                let tile_x = x.wrapping_sub(wx.wrapping_sub(7)) / 8;
+                let tile_y = self.w_counter / 8;
+
+                let tile_map_index = (tile_y as u16 % 32) * 32 + (tile_x as u16 % 32);
+
+                let tile_id: u8 = if lcdc & 0x40 != 0 {
+                    memory_bus.read(0x9C00 + tile_map_index)
+                } else {
+                    memory_bus.read(0x9800 + tile_map_index)
+                };
+
+                let tile_data_address: u16 = if lcdc & 0x10 != 0 {
+                    0x8000 + tile_id as u16 * 16 + self.w_counter as u16 % 8 * 2
+                } else {
+                    0x9000u16.wrapping_add((tile_id as i8 as i16 as u16).wrapping_mul(16))
+                        + self.w_counter as u16 % 8 * 2
+                };
+
+                let low = memory_bus.read(tile_data_address);
+                let high = memory_bus.read(tile_data_address + 1);
+
+                let pixel = (x - (wx - 7)) % 8;
+                let color = (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1);
+                self.framebuffer[self.ly as usize * 160 + x as usize] = color;
+            }
+        }
+
+        if self.ly >= wy {
+            self.w_counter += 1
+        };
+    }
+
+    fn draw_background(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
         // SCY/SCX (0xFF42/0xFF43): scroll offsets. The background is a 256x256 pixel map
         // that wraps around. SCX/SCY shift the viewport into that map.
         let scy = memory_bus.read(0xFF42);
@@ -123,7 +230,7 @@ impl PPU {
 
         // The screen is 160px wide = 20 tiles of 8px each
         for x in 0..20u8 {
-            let tile_x: u8 = (x * 8 + scx) / 8;
+            let tile_x: u8 = ((x as u16 * 8 + scx as u16) / 8) as u8;
 
             // The tile map is a 32x32 grid of tile IDs stored in VRAM.
             // It wraps around with % 32 to handle scroll going past the edge.
@@ -163,18 +270,11 @@ impl PPU {
             // So color = (high_bit << 1) | low_bit → value 0-3.
             // Pixel 0 is the leftmost, stored in bit 7.
             for pixel in 0..8 {
-                let color = (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1);
+                let bgp = memory_bus.read(0xFF47);
+                let pixel_color = (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1);
+                let color = (bgp >> (pixel_color * 2)) & 0x03;
                 self.framebuffer[self.ly as usize * 160 + x as usize * 8 + pixel as usize] = color;
             }
-        }
-
-        if lcdc & 0x20 != 0 {
-            let (wx, wy) = (memory_bus.read(0xFF4B), memory_bus.read(0xFF4A));
-
-            if self.ly >= wy {}
-        }
-        if lcdc & 0x02 != 0 {
-            self.draw_sprites(memory_bus, lcdc);
         }
     }
 
@@ -200,11 +300,18 @@ impl PPU {
             let sprite_x = memory_bus.read(base + 1);
             let tile_id = memory_bus.read(base + 2);
             let attributes = memory_bus.read(base + 3);
-
             // Check if this sprite overlaps the current scanline.
             // With the Y offset, the sprite covers screen rows (sprite_y - 16) to (sprite_y - 9).
             if sprite_y <= self.ly + 16 && self.ly + 16 < sprite_y + 8 {
                 count += 1;
+
+                let obp = if attributes & 0x10 != 0 {
+                    //obp1
+                    memory_bus.read(0xFF49)
+                } else {
+                    //obp0
+                    memory_bus.read(0xFF48)
+                };
 
                 // Which row within the tile are we drawing?
                 // (ly + 16 - sprite_y) gives the offset from the top of the sprite (0-7).
@@ -218,16 +325,25 @@ impl PPU {
                 let high = memory_bus.read(addr + 1);
 
                 for pixel in 0..8u8 {
-                    let color = if attributes & 0x20 != 0 {
+                    let pixel_color = if attributes & 0x20 != 0 {
                         (high >> (pixel) & 1) << 1 | (low >> (pixel) & 1)
                     } else {
                         (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1)
                     };
 
+                    let color = (obp >> (pixel_color * 2)) & 0x03;
                     // Color 0 is always transparent for sprites (unlike background where it's a real color)
                     if color != 0 {
                         let screen_x = sprite_x as usize + pixel as usize - 8;
-                        self.framebuffer[self.ly as usize * 160 + screen_x] = color;
+
+                        let framebuffer_index = self.ly as usize * 160 + screen_x;
+                        if attributes & 0x80 != 0 {
+                            if self.framebuffer[framebuffer_index] == 0 {
+                                self.framebuffer[framebuffer_index] = color;
+                            }
+                        } else {
+                            self.framebuffer[framebuffer_index] = color;
+                        }
                     }
                 }
             }
