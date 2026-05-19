@@ -1,10 +1,9 @@
+use crate::{cpu::CPU, ppu::PPU};
+use minifb::{Key, Window, WindowOptions};
 use std::{
     thread::sleep,
     time::{Duration, Instant},
 };
-
-use crate::{cpu::CPU, ppu::PPU};
-use minifb::{Key, Window, WindowOptions};
 
 mod cpu;
 mod memory;
@@ -28,8 +27,8 @@ fn main() {
     // cpu.memory_bus.load_rom("roms/individual/09-op r,r.gb");
     // cpu.memory_bus.load_rom("roms/individual/10-bit ops.gb");
     // cpu.memory_bus.load_rom("roms/individual/11-op a,(hl).gb");
-    // cpu.memory_bus.load_rom("roms/games/tetris.gb");
-    cpu.memory_bus.load_rom("roms/games/dr mario.gb");
+    cpu.memory_bus.load_rom("roms/games/tetris.gb");
+    // cpu.memory_bus.load_rom("roms/games/dr mario.gb");
     // cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
 
     let frame_duration = Duration::from_nanos(16_666_667);

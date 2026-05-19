@@ -5,6 +5,9 @@ pub const MEMORY_BUS_SIZE: usize = 65536;
 pub struct MemoryBus {
     pub memory: [u8; MEMORY_BUS_SIZE],
     pub joypad: JoyPad,
+    pub rom: Vec<u8>,
+    pub mbc_type: u8,
+    pub rom_bank: u8,
 }
 
 impl MemoryBus {
@@ -12,13 +15,20 @@ impl MemoryBus {
         MemoryBus {
             memory: [0; MEMORY_BUS_SIZE],
             joypad: JoyPad::new(),
+            rom: Vec::new(),
+            mbc_type: 0,
+            rom_bank: 1,
         }
     }
     pub fn read(&self, address: u16) -> u8 {
-        let mut value = self.memory[address as usize];
+        let mut value = if (0x4000..=0x7FFF).contains(&address) {
+            self.rom[self.rom_bank as usize * 0x4000 + (address as usize - 0x4000)]
+        } else {
+            self.memory[address as usize]
+        };
 
         if address == 0xff00 {
-            eprintln!("joypad read, value={:#04x}", value);
+            // eprintln!("joypad read, value={:#04x}", value);
             // bit 5: select button group (0=active)
             // bit 4: select direction group (0=active)
             // bit 3: down  / start
@@ -54,34 +64,34 @@ impl MemoryBus {
     }
 
     pub fn write(&mut self, address: u16, mut value: u8) {
-        if address == 0xFF40 {
-            // eprintln!("LCDC write: {:#04x}", value);
-        }
-        if address == 0xFF46 {
-            let source = (value as u16) << 8;
-            for i in 0..160u16 {
-                let byte = self.memory[source as usize + i as usize];
-                self.memory[0xFE00 + i as usize] = byte;
+        if (0x2000..=0x3FFF).contains(&address) {
+            self.rom_bank = value & 0x1F;
+            eprintln!("rom bank= {:#04}", self.rom_bank);
+            if self.rom_bank == 0 {
+                self.rom_bank = 1;
             }
+        } else {
+            if address == 0xFF46 {
+                let source = (value as u16) << 8;
+                for i in 0..160u16 {
+                    let byte = self.memory[source as usize + i as usize];
+                    self.memory[0xFE00 + i as usize] = byte;
+                }
+            }
+
+            // not accessed by the game
+            if address == 0xff04 {
+                value = 0
+            }
+            self.memory[address as usize] = value;
         }
-        //cpu_instr.gb
-        // if address == 0xFF02 && value == 0x81 {
-        //     if self.memory[0xFF01] == 0x0A {
-        //         //line jump
-        //         println!();
-        //     } else {
-        //         print!("{}", self.memory[0xFF01] as char);
-        //     }
-        // }
-        if address == 0xFF04 {
-            value = 0
-        }
-        self.memory[address as usize] = value;
     }
 
     pub fn load_rom(&mut self, path: &str) {
         let bytes = fs::read(path).unwrap();
-        self.memory[..bytes.len()].copy_from_slice(&bytes);
+        self.rom = bytes;
+        self.mbc_type = self.rom[0x0147];
+        self.memory[0x0000..0x4000].copy_from_slice(&self.rom[0x0000..0x4000]);
     }
 }
 

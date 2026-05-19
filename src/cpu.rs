@@ -23,6 +23,7 @@ impl CPU {
             halted: false,
         }
     }
+
     pub fn step(&mut self) -> u32 {
         let pending = self.memory_bus.read(IE_ADDRESS) & self.memory_bus.read(IF_ADDRESS);
         if pending != 0 {
@@ -81,7 +82,9 @@ impl CPU {
         if self.div_cycles >= 256 {
             self.div_cycles -= 256;
             let div = self.memory_bus.read(0xFF04);
-            self.memory_bus.write(0xFF04, div.wrapping_add(1));
+
+            //hardware directly controls timer
+            self.memory_bus.memory[0xFF04] = div.wrapping_add(1);
         }
 
         let tac = self.memory_bus.read(0xFF07);
