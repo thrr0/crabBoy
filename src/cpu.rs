@@ -51,13 +51,6 @@ impl CPU {
             }
         }
 
-        static mut LAST_PC: u16 = 0;
-        unsafe {
-            if LAST_PC == 0x27aa && self.registers.pc != 0x27a4 {
-                eprintln!("salió del loop → PC={:#06x}", self.registers.pc);
-            }
-            LAST_PC = self.registers.pc;
-        }
         if self.halted {
             self.update_timer(4);
             4

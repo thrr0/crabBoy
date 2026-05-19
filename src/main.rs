@@ -1,5 +1,10 @@
+use std::{
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
 use crate::{cpu::CPU, ppu::PPU};
-use minifb::{Window, WindowOptions};
+use minifb::{Key, Window, WindowOptions};
 
 mod cpu;
 mod memory;
@@ -24,9 +29,11 @@ fn main() {
     // cpu.memory_bus.load_rom("roms/individual/10-bit ops.gb");
     // cpu.memory_bus.load_rom("roms/individual/11-op a,(hl).gb");
     // cpu.memory_bus.load_rom("roms/games/tetris.gb");
-    // cpu.memory_bus.load_rom("roms/games/dr mario.gb");
-    cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
+    cpu.memory_bus.load_rom("roms/games/dr mario.gb");
+    // cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
 
+    let frame_duration = Duration::from_nanos(16_666_667);
+    let mut last_frame = Instant::now();
     loop {
         let cycles = cpu.step();
         ppu.step(&mut cpu.memory_bus, cycles);
@@ -39,6 +46,20 @@ fn main() {
                 .collect();
             window.update_with_buffer(&buffer, 160, 144).unwrap();
             ppu.frame_ready = false;
+
+            let elapsed = last_frame.elapsed();
+            if elapsed < frame_duration {
+                std::thread::sleep(frame_duration - elapsed);
+            }
+            last_frame = Instant::now();
         }
+        cpu.memory_bus.joypad.up = window.is_key_down(Key::W);
+        cpu.memory_bus.joypad.down = window.is_key_down(Key::S);
+        cpu.memory_bus.joypad.left = window.is_key_down(Key::A);
+        cpu.memory_bus.joypad.right = window.is_key_down(Key::D);
+        cpu.memory_bus.joypad.a_button = window.is_key_down(Key::J);
+        cpu.memory_bus.joypad.b_button = window.is_key_down(Key::K);
+        cpu.memory_bus.joypad.select = window.is_key_down(Key::Comma);
+        cpu.memory_bus.joypad.start = window.is_key_down(Key::Period);
     }
 }

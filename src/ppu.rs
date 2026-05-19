@@ -119,24 +119,21 @@ impl PPU {
         memory_bus.write(0xFF41, new_stat);
 
         let interrupt_flag = memory_bus.read(IF_ADDRESS);
-        eprintln!("STAT={:#04x}", lcd_stat);
-        eprintln!("IE={:#04x}", memory_bus.read(0xFFFF));
+        // eprintln!("STAT={:#04x}", lcd_stat);
+        // eprintln!("IE={:#04x}", memory_bus.read(0xFFFF));
         match new_mode {
             0 => {
                 if lcd_stat & 0x8 != 0 {
-                    eprintln!("STAT interrupt fired mode={}", new_mode);
                     memory_bus.write(IF_ADDRESS, interrupt_flag | 0x2);
                 }
             }
             1 => {
                 if lcd_stat & 0x10 != 0 {
-                    eprintln!("STAT interrupt fired mode={}", new_mode);
                     memory_bus.write(IF_ADDRESS, interrupt_flag | 0x2);
                 }
             }
             2 => {
                 if lcd_stat & 0x20 != 0 {
-                    eprintln!("STAT interrupt fired mode={}", new_mode);
                     memory_bus.write(IF_ADDRESS, interrupt_flag | 0x2);
                 }
             }
@@ -164,7 +161,7 @@ impl PPU {
         //updated lcdc value needed per line
         let lcdc = memory_bus.read(0xFF40);
 
-        eprintln!("lcdc={:#04x} ly={}", lcdc, self.ly);
+        // eprintln!("lcdc={:#04x} ly={}", lcdc, self.ly);
 
         if lcdc & 0x01 != 0 {
             self.draw_background(memory_bus, lcdc);
