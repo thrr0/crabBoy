@@ -1,15 +1,16 @@
 use crate::{cpu::CPU, ppu::PPU};
 use minifb::{Key, Window, WindowOptions};
-use std::{
-    thread::sleep,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 mod cpu;
 mod memory;
 mod ppu;
 
-const COLORS: [u32; 4] = [0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F];
+// const COLORS: [u32; 4] = [0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F]; // DMG original
+// const COLORS: [u32; 4] = [0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000]; // Black & white
+const COLORS: [u32; 4] = [0xC4CFA1, 0x8B956D, 0x4D533C, 0x1F1F1F]; // GB Pocket
+// const COLORS: [u32; 4] = [0xE8F8E0, 0xB0E018, 0x509000, 0x202850]; // GB Light
+// const COLORS: [u32; 4] = [0xFFFFFF, 0x666666, 0x333333, 0x000000]; // High contrast
 
 fn main() {
     let mut cpu = CPU::new();
@@ -27,9 +28,12 @@ fn main() {
     // cpu.memory_bus.load_rom("roms/individual/09-op r,r.gb");
     // cpu.memory_bus.load_rom("roms/individual/10-bit ops.gb");
     // cpu.memory_bus.load_rom("roms/individual/11-op a,(hl).gb");
-    cpu.memory_bus.load_rom("roms/games/tetris.gb");
+    // cpu.memory_bus.load_rom("roms/games/tetris.gb");
     // cpu.memory_bus.load_rom("roms/games/dr mario.gb");
     // cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
+    // cpu.memory_bus.load_rom("roms/games/pokemon yellow.gb");
+    cpu.memory_bus.load_rom("roms/games/super mario land.gb");
+    // cpu.memory_bus.load_rom("roms/games/zelda.gb");
 
     let frame_duration = Duration::from_nanos(16_666_667);
     let mut last_frame = Instant::now();

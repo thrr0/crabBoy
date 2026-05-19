@@ -227,7 +227,7 @@ impl PPU {
         let tile_y = (self.ly.wrapping_add(scy)) / 8;
 
         // The screen is 160px wide = 20 tiles of 8px each
-        for x in 0..20u8 {
+        for x in 0..21u8 {
             let tile_x: u8 = ((x as u16 * 8 + scx as u16) / 8) as u8;
 
             // The tile map is a 32x32 grid of tile IDs stored in VRAM.
@@ -271,7 +271,12 @@ impl PPU {
                 let bgp = memory_bus.read(0xFF47);
                 let pixel_color = (high >> (7 - pixel) & 1) << 1 | (low >> (7 - pixel) & 1);
                 let color = (bgp >> (pixel_color * 2)) & 0x03;
-                self.framebuffer[self.ly as usize * 160 + x as usize * 8 + pixel as usize] = color;
+
+                let screen_x = (x * 8 + pixel).wrapping_sub(scx % 8);
+
+                if (0..160).contains(&screen_x) {
+                    self.framebuffer[self.ly as usize * 160 + screen_x as usize] = color;
+                }
             }
         }
     }
@@ -360,15 +365,17 @@ impl PPU {
                 let color = (obp >> (pixel_color * 2)) & 0x03;
                 // Color 0 is always transparent for sprites (unlike background where it's a real color)
                 if color != 0 {
-                    let screen_x = sprite_x as usize + pixel as usize - 8;
+                    let screen_x = sprite_x.wrapping_sub(8) as usize + pixel as usize;
 
-                    let framebuffer_index = self.ly as usize * 160 + screen_x;
-                    if attributes & 0x80 != 0 {
-                        if self.framebuffer[framebuffer_index] == 0 {
+                    if (0..160).contains(&screen_x) {
+                        let framebuffer_index = self.ly as usize * 160 + screen_x;
+                        if attributes & 0x80 != 0 {
+                            if self.framebuffer[framebuffer_index] == 0 {
+                                self.framebuffer[framebuffer_index] = color;
+                            }
+                        } else {
                             self.framebuffer[framebuffer_index] = color;
                         }
-                    } else {
-                        self.framebuffer[framebuffer_index] = color;
                     }
                 }
             }
