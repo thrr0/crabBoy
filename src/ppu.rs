@@ -177,9 +177,6 @@ impl PPU {
         // );
         // eprintln!("lcdc={:#04x} ly={}", lcdc, self.ly);
 
-        if self.ly == 133 {
-            eprintln!("lcdc 0x20: {}", lcdc & 0x20);
-        }
         if lcdc & 0x01 != 0 {
             self.draw_background(memory_bus, lcdc);
         }
@@ -197,9 +194,6 @@ impl PPU {
         let mut window_drawn = false;
 
         for x in 0..160 {
-            if self.ly == 133 && x == 89 {
-                eprintln!("wx: {} wy:{} ly: {}", wx, wy, self.ly);
-            }
             if x + 7 >= wx && self.ly >= wy {
                 let tile_x = x.wrapping_sub(wx.wrapping_sub(7)) / 8;
                 let tile_y = self.w_counter / 8;

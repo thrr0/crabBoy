@@ -6,9 +6,9 @@ mod cpu;
 mod memory;
 mod ppu;
 
-// const COLORS: [u32; 4] = [0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F]; // DMG original
+const COLORS: [u32; 4] = [0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F]; // DMG original
 // const COLORS: [u32; 4] = [0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000]; // Black & white
-const COLORS: [u32; 4] = [0xC4CFA1, 0x8B956D, 0x4D533C, 0x1F1F1F]; // GB Pocket
+// const COLORS: [u32; 4] = [0xC4CFA1, 0x8B956D, 0x4D533C, 0x1F1F1F]; // GB Pocket
 // const COLORS: [u32; 4] = [0xE8F8E0, 0xB0E018, 0x509000, 0x202850]; // GB Light
 // const COLORS: [u32; 4] = [0xFFFFFF, 0x666666, 0x333333, 0x000000]; // High contrast
 
@@ -17,29 +17,45 @@ fn main() {
     let mut ppu = PPU::new();
 
     let mut window = Window::new("CrabBoy", 160 * 3, 144 * 3, WindowOptions::default()).unwrap();
-    // cpu.memory_bus.load_rom("roms/cpu_instrs.gb");
-    // cpu.memory_bus.load_rom("roms/individual/01-special.gb");
-    // cpu.memory_bus.load_rom("roms/individual/02-interrupts.gb");
-    // cpu.memory_bus.load_rom("roms/individual/03-op sp,hl.gb");
-    // cpu.memory_bus.load_rom("roms/individual/05-op rp.gb");
-    // cpu.memory_bus.load_rom("roms/individual/06-ld r,r.gb");
-    // cpu.memory_bus.load_rom("roms/individual/07-jr,jp,call,ret,rst.gb");
-    // cpu.memory_bus.load_rom("roms/individual/08-misc instrs.gb");
-    // cpu.memory_bus.load_rom("roms/individual/09-op r,r.gb");
-    // cpu.memory_bus.load_rom("roms/individual/10-bit ops.gb");
-    // cpu.memory_bus.load_rom("roms/individual/11-op a,(hl).gb");
-    // cpu.memory_bus.load_rom("roms/games/tetris.gb");
-    // cpu.memory_bus.load_rom("roms/games/dr mario.gb");
-    // cpu.memory_bus.load_rom("roms/dmg-acid2.gb");
-    // cpu.memory_bus.load_rom("roms/games/pokemon yellow.gb");
-    cpu.memory_bus.load_rom("roms/games/super mario land.gb");
-    // cpu.memory_bus.load_rom("roms/games/zelda.gb");
-    // cpu.memory_bus.load_rom("roms/games/donkey kong 3.gb");
-    // cpu.memory_bus.load_rom("roms/games/metroid 2.gb");
 
-    let frame_duration = Duration::from_nanos(16_666_667);
+    let path = "roms/";
+
+    let filename;
+    //TEST ROMS
+    // filename = "cpu_instrs.gb";
+    // filename = "individual/01-special.gb";
+    // filename = "individual/02-interrupts.gb";
+    // filename = "individual/03-op sp,hl.gb";
+    // filename = "individual/05-op rp.gb";
+    // filename = "individual/06-ld r,r.gb";
+    // filename = "individual/07-jr,jp,call,ret,rst.gb";
+    // filename = "individual/08-misc instrs.gb";
+    // filename = "individual/09-op r,r.gb";
+    // filename = "individual/10-bit ops.gb";
+    // filename = "individual/11-op a,(hl).gb";
+    //
+    //GAMES
+    // filename = "games/tetris.gb";
+    // filename = "games/dr mario.gb";
+    // filename = "dmg-acid2.gb";
+    // filename = "games/super mario land.gb";
+    // filename = "games/zelda.gb";
+    // filename = "games/donkey kong 3.gb";
+    // filename = "games/metroid 2.gb";
+    filename = "games/pokemon yellow.gb";
+
+    let full_path = format!("{}{}", path, filename);
+    let save_path = full_path.replace(".gb", ".sav");
+
+    cpu.memory_bus.load_rom(&full_path);
+    cpu.memory_bus.load_ram(&save_path);
+
+    //let frame_duration = Duration::from_nanos(16_666_667);
+    let frame_duration = Duration::from_nanos(8_333_332);
     // let frame_duration = Duration::from_nanos(512_222_223);
+    //
     let mut last_frame = Instant::now();
+
     loop {
         let cycles = cpu.step();
         ppu.step(&mut cpu.memory_bus, cycles);
@@ -53,12 +69,17 @@ fn main() {
             window.update_with_buffer(&buffer, 160, 144).unwrap();
             ppu.frame_ready = false;
 
+            if cpu.memory_bus.ram_dirty {
+                cpu.memory_bus.save_ram(&save_path);
+                cpu.memory_bus.ram_dirty = false;
+            }
             let elapsed = last_frame.elapsed();
             if elapsed < frame_duration {
                 std::thread::sleep(frame_duration - elapsed);
             }
             last_frame = Instant::now();
         }
+
         cpu.memory_bus.joypad.up = window.is_key_down(Key::W);
         cpu.memory_bus.joypad.down = window.is_key_down(Key::S);
         cpu.memory_bus.joypad.left = window.is_key_down(Key::A);
