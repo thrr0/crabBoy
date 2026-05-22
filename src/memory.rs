@@ -46,14 +46,8 @@ impl MemoryBus {
             }
         }
         let mut value = match address {
-            0xFF91 => {
-                //force dmg mode
-                // eprint!("0xFF read");
-                0x00
-            }
             0x4000..=0x7FFF => {
                 let index = self.rom_bank as usize * 0x4000 + (address as usize - 0x4000);
-                // eprintln!("rom_bank: {:#04x}", self.rom_bank);
                 if index < self.rom.len() {
                     self.rom[index]
                 } else {
@@ -70,12 +64,7 @@ impl MemoryBus {
                     0xFF
                 }
             }
-            _ => {
-                if address == 0xFF91 {
-                    eprintln!("llego a _");
-                }
-                self.memory[address as usize]
-            }
+            _ => self.memory[address as usize],
         };
 
         if address == 0xff00 {
@@ -150,9 +139,9 @@ impl MemoryBus {
                 self.boot_rom_active = false;
             }
             _ => {
-                if address == 0xFF50 {
-                    eprintln!("0xFF50 write: {:#04x}", value);
-                }
+                // if address == 0xFF50 {
+                //     eprintln!("0xFF50 write: {:#04x}", value);
+                // }
                 if address == 0xFF46 {
                     // OAM DMA: copying 160 bytes from source address to OAM (0xFE00-0xFE9F)
                     let source = (value as u16) << 8;
@@ -162,9 +151,10 @@ impl MemoryBus {
                     }
                 }
 
-                if address == 0xFF47 {
-                    eprintln!("BGP WRITE = {:#04x}", self.memory[0xFF47]);
-                }
+                // if address == 0xFF47 {
+                //     eprintln!("BGP WRITE = {:#04x}", self.memory[0xFF47]);
+                // }
+                //
                 if address == 0xff04 {
                     // DIV is read-only; any write resets it to 0
                     value = 0
@@ -215,7 +205,6 @@ impl MemoryBus {
     pub fn load_rom(&mut self, path: &str) {
         self.rom = fs::read(path).unwrap();
 
-        eprintln!("{:02X?}", &self.rom[0x00..0x10]);
         self.hardware_mode = match self.rom[0x147] {
             // 0x80 => //dmg & gbc
             0xC0 => HardwareMode::GBC,
