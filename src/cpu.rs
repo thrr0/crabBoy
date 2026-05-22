@@ -25,6 +25,13 @@ impl CPU {
     }
 
     pub fn step(&mut self) -> u32 {
+        // if self.registers.pc >= 0x0100 {
+        //     eprintln!(
+        //         "pc: {:#04x} a: {:#04x}",
+        //         self.registers.pc, self.registers.a
+        //     )
+        // }
+
         let pending = self.memory_bus.read(IE_ADDRESS) & self.memory_bus.read(IF_ADDRESS);
         if pending != 0 {
             self.halted = false;
@@ -1117,6 +1124,7 @@ impl CPU {
             //LD A, (0xFF00 + n8)
             0xF0 => {
                 let offset = self.fetch();
+                // eprintln!("offset: {:#04x}", offset);
                 self.registers.a = self.memory_bus.read(0xFF00 + offset as u16);
                 12
             }
@@ -1557,7 +1565,7 @@ impl Registers {
             },
             h: 0,
             l: 0,
-            pc: 0x0100,
+            pc: 0x0000,
             sp: 0xFFFE,
         }
     }
@@ -1571,7 +1579,7 @@ impl Registers {
     fn get_de(&self) -> u16 {
         (self.d as u16) << 8 | self.e as u16 // bit manipulation
     }
-    fn get_hl(&self) -> u16 {
+    pub fn get_hl(&self) -> u16 {
         (self.h as u16) << 8 | self.l as u16 // bit manipulation
     }
 
@@ -1595,7 +1603,7 @@ impl Registers {
 }
 
 pub struct FlagsRegister {
-    zero: bool,
+    pub zero: bool,
     subtract: bool,
     half_carry: bool,
     carry: bool,
@@ -1607,7 +1615,7 @@ const HALF_CARRY_FLAG_BYTE_POSITION: u8 = 5;
 const CARRY_FLAG_BYTE_POSITION: u8 = 4;
 
 impl FlagsRegister {
-    fn get_register(&self) -> u8 {
+    pub fn get_register(&self) -> u8 {
         (self.zero as u8) << ZERO_FLAG_BYTE_POSITION
             | (self.subtract as u8) << SUBTRACT_FLAG_BYTE_POISITION
             | (self.half_carry as u8) << HALF_CARRY_FLAG_BYTE_POSITION

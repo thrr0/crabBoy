@@ -49,6 +49,7 @@ impl PPU {
             self.ly = 0;
             self.cycles = 0;
             self.mode = 2;
+            return;
         }
         // The PPU draws one scanline at a time. For each of the 144 visible lines,
         // it goes through 3 modes in order:

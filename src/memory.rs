@@ -1,5 +1,7 @@
 use std::fs;
 
+use crate::hardware::HardwareMode;
+
 pub const MEMORY_BUS_SIZE: usize = 65536;
 
 pub struct MemoryBus {
@@ -12,6 +14,9 @@ pub struct MemoryBus {
     pub ram: Vec<u8>,
     pub ram_bank: u8,
     pub ram_dirty: bool,
+    pub hardware_mode: HardwareMode,
+    pub boot_rom: Option<[u8; 256]>,
+    pub boot_rom_active: bool,
 }
 
 impl MemoryBus {
@@ -26,11 +31,26 @@ impl MemoryBus {
             ram: Vec::new(),
             ram_bank: 0,
             ram_dirty: false,
+            hardware_mode: HardwareMode::DMG,
+            boot_rom: None,
+            boot_rom_active: false,
         }
     }
 
     pub fn read(&self, address: u16) -> u8 {
+        if self.boot_rom_active {
+            if let Some(boot) = &self.boot_rom {
+                if address < 0x0100 {
+                    return boot[address as usize];
+                }
+            }
+        }
         let mut value = match address {
+            0xFF91 => {
+                //force dmg mode
+                // eprint!("0xFF read");
+                0x00
+            }
             0x4000..=0x7FFF => {
                 let index = self.rom_bank as usize * 0x4000 + (address as usize - 0x4000);
                 // eprintln!("rom_bank: {:#04x}", self.rom_bank);
@@ -50,7 +70,12 @@ impl MemoryBus {
                     0xFF
                 }
             }
-            _ => self.memory[address as usize],
+            _ => {
+                if address == 0xFF91 {
+                    eprintln!("llego a _");
+                }
+                self.memory[address as usize]
+            }
         };
 
         if address == 0xff00 {
@@ -120,7 +145,14 @@ impl MemoryBus {
                     self.ram_dirty = true;
                 }
             }
+            0xFF50 => {
+                eprintln!("boot rom disabled");
+                self.boot_rom_active = false;
+            }
             _ => {
+                if address == 0xFF50 {
+                    eprintln!("0xFF50 write: {:#04x}", value);
+                }
                 if address == 0xFF46 {
                     // OAM DMA: copying 160 bytes from source address to OAM (0xFE00-0xFE9F)
                     let source = (value as u16) << 8;
@@ -130,6 +162,9 @@ impl MemoryBus {
                     }
                 }
 
+                if address == 0xFF47 {
+                    eprintln!("BGP WRITE = {:#04x}", self.memory[0xFF47]);
+                }
                 if address == 0xff04 {
                     // DIV is read-only; any write resets it to 0
                     value = 0
@@ -180,6 +215,26 @@ impl MemoryBus {
     pub fn load_rom(&mut self, path: &str) {
         self.rom = fs::read(path).unwrap();
 
+        eprintln!("{:02X?}", &self.rom[0x00..0x10]);
+        self.hardware_mode = match self.rom[0x147] {
+            // 0x80 => //dmg & gbc
+            0xC0 => HardwareMode::GBC,
+            _ => HardwareMode::DMG,
+        };
+        if matches!(self.hardware_mode, HardwareMode::DMG) {
+            if let Ok(bytes) = fs::read("roms/boot.gb") {
+                let mut arr = [0u8; 256];
+                arr.copy_from_slice(&bytes[..256]);
+                self.boot_rom = Some(arr);
+                self.boot_rom_active = true;
+                eprintln!("boot rom loaded");
+            } else {
+                panic!("boot rom missing");
+            }
+        }
+        // TO DO: gbc and both modes handle
+
+        eprintln!("mbc type;: {:#04x}", self.rom[0x0147]);
         let ram_size = match self.rom[0x0149] {
             0x01 => 0x800,
             0x02 => 0x2000,
