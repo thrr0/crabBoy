@@ -38,14 +38,13 @@ impl MemoryBus {
     }
 
     pub fn read(&self, address: u16) -> u8 {
-        if self.boot_rom_active {
+        if self.boot_rom_active && address < 0x0100 {
             if let Some(boot) = &self.boot_rom {
-                if address < 0x0100 {
-                    return boot[address as usize];
-                }
+                return boot[address as usize];
             }
         }
-        let mut value = match address {
+
+        return match address {
             0x4000..=0x7FFF => {
                 let index = self.rom_bank as usize * 0x4000 + (address as usize - 0x4000);
                 if index < self.rom.len() {
@@ -55,22 +54,23 @@ impl MemoryBus {
                 }
             }
             0xA000..=0xBFFF => {
-                //RAM read
                 if self.ram_enabled {
-                    let real_address =
-                        self.ram_bank as usize * 0x2000 + (address as usize - 0xA000);
-                    self.ram[real_address]
+                    if (self.mbc_type == 0x05 || self.mbc_type == 0x06) && address <= 0xA1FF {
+                        //mbc2
+                        self.ram[(address as usize - 0xA000) % 512] | 0xF0
+                    } else {
+                        //RAM read
+                        let real_address =
+                            self.ram_bank as usize * 0x2000 + (address as usize - 0xA000);
+                        self.ram[real_address]
+                    }
                 } else {
                     0xFF
                 }
             }
+            0xFF00 => self.handle_joypad(self.memory[0xFF00]),
             _ => self.memory[address as usize],
         };
-
-        if address == 0xff00 {
-            value = self.handle_joypad(value);
-        }
-        value
     }
 
     fn handle_joypad(&self, value: u8) -> u8 {
@@ -103,17 +103,10 @@ impl MemoryBus {
         value & 0x30 | (bit_3 as u8) << 3 | (bit_2 as u8) << 2 | (bit_1 as u8) << 1 | bit_0 as u8
     }
 
-    pub fn write(&mut self, address: u16, mut value: u8) {
-        // Writing to ROM space (0x0000-0x1FFF) is intercepted by the mbc as a ram enable command
-        // Value 0x0A in lower nibble enables external RAM; any other value disables it
-
+    pub fn write(&mut self, address: u16, value: u8) {
         match address {
             0x0000..=0x1FFF => {
-                if (value & 0x0F == 0x0A) && (self.mbc_type != 0) {
-                    self.ram_enabled = true;
-                } else {
-                    self.ram_enabled = false;
-                }
+                self.handle_ram_enable(address, value);
             }
             0x2000..=0x3FFF => {
                 self.handle_mbc_write(address, value);
@@ -125,41 +118,37 @@ impl MemoryBus {
                 }
             }
             0xA000..=0xBFFF => {
-                //RAM write
-
                 if self.ram_enabled {
-                    let real_address =
-                        self.ram_bank as usize * 0x2000 + (address as usize - 0xA000);
-                    self.ram[real_address] = value;
-                    self.ram_dirty = true;
-                }
-            }
-            0xFF50 => {
-                eprintln!("boot rom disabled");
-                self.boot_rom_active = false;
-            }
-            _ => {
-                // if address == 0xFF50 {
-                //     eprintln!("0xFF50 write: {:#04x}", value);
-                // }
-                if address == 0xFF46 {
-                    // OAM DMA: copying 160 bytes from source address to OAM (0xFE00-0xFE9F)
-                    let source = (value as u16) << 8;
-                    for i in 0..160u16 {
-                        let byte = self.memory[source as usize + i as usize];
-                        self.memory[0xFE00 + i as usize] = byte;
+                    if (self.mbc_type == 0x05 || self.mbc_type == 0x06) && address <= 0xA1FF {
+                        self.ram[(address as usize - 0xA000) % 512] = value & 0xF;
+                    } else {
+                        //RAM write
+                        let real_address =
+                            self.ram_bank as usize * 0x2000 + (address as usize - 0xA000);
+                        self.ram[real_address] = value;
+                        self.ram_dirty = true;
                     }
                 }
-
-                // if address == 0xFF47 {
-                //     eprintln!("BGP WRITE = {:#04x}", self.memory[0xFF47]);
-                // }
-                //
-                if address == 0xff04 {
-                    // DIV is read-only; any write resets it to 0
-                    value = 0
+            }
+            0xFF04 => {
+                // DIV is read-only; any write resets it to 0
+                self.memory[address as usize] = 0;
+            }
+            0xFF50 => {
+                //     eprintln!("0xFF50 write: {:#04x}", value);
+                eprintln!("boot rom disabled");
+                self.boot_rom_active = false;
+                self.memory[address as usize] = value;
+            }
+            0xFF46 => {
+                // OAM DMA: copying 160 bytes from source address to OAM (0xFE00-0xFE9F)
+                let source = (value as u16) << 8;
+                for i in 0..160u16 {
+                    let byte = self.memory[source as usize + i as usize];
+                    self.memory[0xFE00 + i as usize] = byte;
                 }
-
+            }
+            _ => {
                 //mode 3 locks vram
                 //NOT STRICTLY NECESSARY
                 // if (0x8000..=0x9FFF).contains(&address) {
@@ -172,19 +161,47 @@ impl MemoryBus {
         }
     }
 
+    fn handle_ram_enable(&mut self, address: u16, value: u8) {
+        // Writing to ROM space (0x0000-0x1FFF) is intercepted by the mbc as a ram enable command
+        // Value 0x0A in lower nibble enables external RAM; any other value disables it
+        let is_mbc2 = matches!(self.mbc_type, 0x05 | 0x06);
+        let bit8 = address & 0x0100 != 0;
+        let enables_ram = value & 0x0F == 0x0A;
+
+        if is_mbc2 {
+            if !bit8 {
+                self.ram_enabled = enables_ram;
+            }
+        } else if self.mbc_type != 0 {
+            self.ram_enabled = enables_ram;
+        }
+    }
+
     fn handle_mbc_write(&mut self, address: u16, value: u8) {
         match self.mbc_type {
             0x00 => { /* Rom only */ }
             0x01..=0x03 => {
                 //mbc1: 5-bit bank number, bank 0 is remapped to 1 (bank 0 is always at 0x0000-0x3FFF)
 
-                self.rom_bank = value as u16 & 0x1F;
+                let bank = value as u16 & 0x1F;
+                self.rom_bank = match bank {
+                    0x00 => 1,
+                    _ => bank,
+                };
                 // eprintln!("rom bank write= {:#04x}", self.rom_bank);
-                if self.rom_bank == 0 {
-                    self.rom_bank = 1;
+            }
+            0x05..=0x06 => {
+                //mbc2 4-bit bank number, 0 is remapped to 1. writing is only allowed if bit 8 from address == 1
+                let bit8: bool = address & 0x0100 != 0;
+
+                if bit8 {
+                    let new_bank = match (value & 0x0F) as u16 {
+                        0x00 => 0x01,
+                        _ => (value & 0x0F) as u16,
+                    };
+                    self.rom_bank = new_bank;
                 }
             }
-            0x05..=0x06 => { /* mbc2 */ }
             0x0F..=0x13 => {
                 // mbc3: 7-bit bank number, bank 0 is valid unlike MBC1
 
@@ -202,14 +219,34 @@ impl MemoryBus {
             _ => panic!("wrong mbc"),
         }
     }
+
     pub fn load_rom(&mut self, path: &str) {
         self.rom = fs::read(path).unwrap();
+
+        eprintln!("mbc type;: {:#04x}", self.rom[0x0147]);
+        self.mbc_type = self.rom[0x0147];
+
+        let cartridge_ram_size = match self.rom[0x0149] {
+            0x01 => 0x800,
+            0x02 => 0x2000,
+            0x03 => 0x8000,
+            0x04 => 0x20000,
+            0x05 => 0x10000,
+            _ => 0,
+        };
+
+        if matches!(self.mbc_type, 0x05 | 0x06) {
+            self.ram = vec![0; 512];
+        } else {
+            self.ram = vec![0; cartridge_ram_size];
+        }
 
         self.hardware_mode = match self.rom[0x147] {
             // 0x80 => //dmg & gbc
             0xC0 => HardwareMode::GBC,
             _ => HardwareMode::DMG,
         };
+
         if matches!(self.hardware_mode, HardwareMode::DMG) {
             if let Ok(bytes) = fs::read("roms/boot.gb") {
                 let mut arr = [0u8; 256];
@@ -223,21 +260,6 @@ impl MemoryBus {
         }
         // TO DO: gbc and both modes handle
 
-        eprintln!("mbc type;: {:#04x}", self.rom[0x0147]);
-        let ram_size = match self.rom[0x0149] {
-            0x01 => 0x800,
-            0x02 => 0x2000,
-            0x03 => 0x8000,
-            0x04 => 0x20000,
-            0x05 => 0x10000,
-            _ => 0,
-        };
-        self.ram = vec![0; ram_size];
-
-        //eprintln!("rom_bank: {:#04x}", self.rom[0x0147]);
-        // eprintln!("0x0148: {:#04x}", self.rom[0x0148]);
-        // eprintln!("rom.len: {:#04x}", self.rom.len());
-        self.mbc_type = self.rom[0x0147];
         self.memory[0x0000..0x4000].copy_from_slice(&self.rom[0x0000..0x4000]);
     }
 

@@ -36,13 +36,12 @@ fn main() {
     // filename = "individual/11-op a,(hl).gb";
     //
     //GAMES
-    // filename = "games/tetris.gb";
     // filename = "games/dr mario.gb";
     // filename = "dmg-acid2.gb";
     // filename = "games/super mario land.gb";
-    // filename = "games/zelda.gb";
+    filename = "games/zelda.gb";
     // filename = "games/donkey kong 3.gb";
-    filename = "games/metroid 2.gb";
+    // filename = "games/metroid 2.gb";
     // filename = "games/pokemon yellow.gb";
     // filename = "games/kirby.gb";
 
@@ -59,6 +58,24 @@ fn main() {
     let mut last_frame = Instant::now();
 
     loop {
+        cpu.memory_bus.joypad.up = window.is_key_down(Key::W);
+        cpu.memory_bus.joypad.down = window.is_key_down(Key::S);
+        cpu.memory_bus.joypad.left = window.is_key_down(Key::A);
+        cpu.memory_bus.joypad.right = window.is_key_down(Key::D);
+        cpu.memory_bus.joypad.a_button = window.is_key_down(Key::J);
+        cpu.memory_bus.joypad.b_button = window.is_key_down(Key::K);
+        cpu.memory_bus.joypad.select = window.is_key_down(Key::Comma);
+        cpu.memory_bus.joypad.start = window.is_key_down(Key::Period);
+
+        if cpu.memory_bus.ram_dirty {
+            if cpu.memory_bus.save_ram(&save_path) {
+                eprintln!(".sav succesfully written");
+            } else {
+                eprintln!(".sav not written");
+            }
+            cpu.memory_bus.ram_dirty = false;
+        }
+
         let cycles = cpu.step();
         ppu.step(&mut cpu.memory_bus, cycles);
 
@@ -69,26 +86,14 @@ fn main() {
                 .map(|&c| COLORS[c as usize])
                 .collect();
             window.update_with_buffer(&buffer, 160, 144).unwrap();
+
             ppu.frame_ready = false;
 
-            if cpu.memory_bus.ram_dirty {
-                cpu.memory_bus.save_ram(&save_path);
-                cpu.memory_bus.ram_dirty = false;
-            }
             let elapsed = last_frame.elapsed();
             if elapsed < frame_duration {
                 std::thread::sleep(frame_duration - elapsed);
             }
             last_frame = Instant::now();
         }
-
-        cpu.memory_bus.joypad.up = window.is_key_down(Key::W);
-        cpu.memory_bus.joypad.down = window.is_key_down(Key::S);
-        cpu.memory_bus.joypad.left = window.is_key_down(Key::A);
-        cpu.memory_bus.joypad.right = window.is_key_down(Key::D);
-        cpu.memory_bus.joypad.a_button = window.is_key_down(Key::J);
-        cpu.memory_bus.joypad.b_button = window.is_key_down(Key::K);
-        cpu.memory_bus.joypad.select = window.is_key_down(Key::Comma);
-        cpu.memory_bus.joypad.start = window.is_key_down(Key::Period);
     }
 }
