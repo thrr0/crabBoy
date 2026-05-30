@@ -1,3 +1,7 @@
+// The Game Boy outputs graphics to a 160x144 LCD
+//
+// The rendering is achieved via 'tiles' (squares of 8x8 pixels).
+// Each tile assigns a color index to each of its pixels, ranging 0-3 (2 bits per pixel = "2bpp")
 use crate::{cpu::IF_ADDRESS, memory::MemoryBus};
 
 const SCREEN_SIZE: usize = 160 * 144;
@@ -5,13 +9,11 @@ const SCREEN_SIZE: usize = 160 * 144;
 pub struct PPU {
     pub mode: u8, // The PPU cycles through 4 modes each scanline (see step())
     pub cycles: u32,
-    // Each pixel is stored as a color index 0-3 (2 bits per pixel = "2bpp").
-    // The actual color (green shades) is resolved later when rendering to screen.
     pub framebuffer: [u8; SCREEN_SIZE],
-    pub ly: u8, // Current scanline being drawn (0-153)
-    pub frame_ready: bool,
+    pub ly: u8,            // Current scanline being drawn (0-153)
+    pub frame_ready: bool, //used for front-end
     pub w_counter: u8,
-    pub bg_raw: [u8; SCREEN_SIZE],
+    pub bg_raw: [u8; SCREEN_SIZE], //raw background is needed for sprites colors
 }
 
 impl PPU {
@@ -51,6 +53,7 @@ impl PPU {
             self.mode = 2;
             // return;
         }
+
         // The PPU draws one scanline at a time. For each of the 144 visible lines,
         // it goes through 3 modes in order:
         //   Mode 2 - OAM Scan  (80 cycles):  PPU looks at OAM to find sprites on this line
@@ -61,7 +64,7 @@ impl PPU {
         // Total per frame: (80+172+204)*144 + 4560 = 70224 cycles
         match self.mode {
             2 => {
-                // OAM scan — sprite selection happens here in hardware,
+                // OAM scan; sprite selection happens here in hardware,
                 // but we do it directly in draw_sprites() for simplicity
                 if self.cycles > 80 {
                     self.mode = 3;
@@ -231,6 +234,8 @@ impl PPU {
         };
     }
 
+    //The background is composed of a tilemap (i.e. a large grid of tiles), which
+    //contains references to the tiles instead of the tiles themselves
     fn draw_background(&mut self, memory_bus: &MemoryBus, lcdc: u8) {
         // SCY/SCX (0xFF42/0xFF43): scroll offsets. The background is a 256x256 pixel map
         // that wraps around. SCX/SCY shift the viewport into that map.

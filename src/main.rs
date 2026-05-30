@@ -2,6 +2,7 @@ use crate::{cpu::CPU, ppu::PPU};
 use minifb::{Key, Window, WindowOptions};
 use std::time::{Duration, Instant};
 
+mod apu;
 mod cpu;
 mod hardware;
 mod memory;
@@ -34,12 +35,13 @@ fn main() {
     // filename = "individual/09-op r,r.gb";
     // filename = "individual/10-bit ops.gb";
     // filename = "individual/11-op a,(hl).gb";
+    // filename = "dmg-acid2.gb";
     //
     //GAMES
     // filename = "games/dr mario.gb";
-    // filename = "dmg-acid2.gb";
-    // filename = "games/super mario land.gb";
-    filename = "games/zelda.gb";
+    filename = "games/super mario land.gb";
+    // filename = "games/zelda.gb";
+    // filename = "games/wario land.gb";
     // filename = "games/donkey kong 3.gb";
     // filename = "games/metroid 2.gb";
     // filename = "games/pokemon yellow.gb";
@@ -69,7 +71,7 @@ fn main() {
 
         if cpu.memory_bus.ram_dirty {
             if cpu.memory_bus.save_ram(&save_path) {
-                eprintln!(".sav succesfully written");
+                // eprintln!(".sav succesfully written");
             } else {
                 eprintln!(".sav not written");
             }

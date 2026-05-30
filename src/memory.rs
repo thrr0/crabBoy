@@ -1,3 +1,16 @@
+//The Game Boy has a 16-bit address bus, which is used to address ROM, RAM and I/O
+//
+//Memory map is as follows:
+//0x0000-0x3FFF: 16KiB Rom bank 00 (cartridge)
+//0x4000-0x7FFF: 16KiB Rom Bank 01-NN (cartridge; switchable via MBC)
+//0x8000-0x9FFF: 9KiB VRAM
+//0xA000-0xBFFF: 8KiB External RAM (cartridge)
+//0xC000-0xCFFF: 4KiB Work RAM
+//0xE000-0xFDFF: mirror of 0xC000-0xCFFF
+//0xFE00-0xFE9F: Object Atributte Memory (sprites)
+//0xFEA0-0xFEFF: Not usable
+//0xFF80-0xFFFE: High RAM
+//0xFFFF: Interrupt enable register (IE)
 use std::fs;
 
 use crate::hardware::HardwareMode;
@@ -126,6 +139,7 @@ impl MemoryBus {
                         let real_address =
                             self.ram_bank as usize * 0x2000 + (address as usize - 0xA000);
                         self.ram[real_address] = value;
+                        // print!("saving {:#04x} at {:#04}", value, real_address);
                         self.ram_dirty = true;
                     }
                 }
@@ -265,7 +279,7 @@ impl MemoryBus {
 
     pub fn load_ram(&mut self, path: &str) {
         if let Ok(bytes) = fs::read(path) {
-            eprint!(".sav loaded");
+            eprintln!(".sav loaded");
 
             if bytes.len() == self.ram.len() {
                 eprint!(".sav length ok");
@@ -274,7 +288,7 @@ impl MemoryBus {
                 eprintln!(".sav length is wrong!!");
             }
         } else {
-            eprint!(".sav not loaded");
+            eprintln!(".sav not loaded");
         }
     }
 

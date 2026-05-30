@@ -1,3 +1,6 @@
+// The Game boy has a 8-bit CPU called Sharp SM83, similar to the Intel 8080 and Zilog Z80
+// Clock speed: 4.19MHz
+// 8-bit data sets and 16 bits address bus (== 64KB of memory capability)
 use crate::memory::MemoryBus;
 
 pub const IE_ADDRESS: u16 = 0xFFFF;
@@ -6,9 +9,15 @@ pub const IF_ADDRESS: u16 = 0xFF0F;
 pub struct CPU {
     pub registers: Registers,
     pub memory_bus: MemoryBus,
-    pub ime: bool,
+    pub ime: bool, //interrupt master enable flag
+
+    // TIMA (0xFF05) i s a timer incremented at the clock frequency specified by
+    //the TAC register (0xFF07). When the value overflows it is reset to the value
+    //specified in TMA (0xFF06)
     pub tima_cycles: u64,
-    pub div_cycles: u64,
+
+    //DIV (0xFF04) is a timer incremented at a rate of 16384Hz (~256 times per CPU cycle)
+    pub div: u64,
     pub halted: bool,
 }
 
@@ -19,7 +28,7 @@ impl CPU {
             memory_bus: MemoryBus::new(),
             ime: false,
             tima_cycles: 0,
-            div_cycles: 0,
+            div: 0,
             halted: false,
         }
     }
@@ -84,10 +93,10 @@ impl CPU {
     }
 
     fn update_timer(&mut self, cycles: u32) {
-        self.div_cycles += cycles as u64;
+        self.div += cycles as u64;
 
-        if self.div_cycles >= 256 {
-            self.div_cycles -= 256;
+        if self.div >= 256 {
+            self.div -= 256;
             let div = self.memory_bus.read(0xFF04);
 
             //hardware directly controls timer
