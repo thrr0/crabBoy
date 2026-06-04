@@ -147,53 +147,29 @@ impl APU {
         //          7 6         5 4 3 2 1 0
         //nr21      wave duty   initial length timer
         let nr21 = memory_bus.read(0xFF16);
+        //          7 6 5 4          3          2 1 0
+        //nr22    initial volume    env dir    sweep race
+        let nr22 = memory_bus.read(0xFF17);
+
         //nr23 = low 8 bits of channel 2 frequency
         let nr23 = memory_bus.read(0xFF18);
         //          7           6            5 4 3     2 1 0
         //nr24  trigger     Length enable   -------     high 3 bits of ch2 freq
         let nr24 = memory_bus.read(0xFF19);
-
-        self.channel_2.frequency = (nr24 as u16 & 0b00000111) << 8 | nr23 as u16;
-
-        let wave_duty = (nr21 >> 6) & 0x03;
-        // Value        Duty cycle
-        //  0b00          12.5%
-        //  0b01          25%
-        //  0b10          50%
-        //  0b11          75%
-        self.channel_2.duty = match wave_duty {
-            0b00 => 0b00000001,
-            0b01 => 0b10000001,
-            0b10 => 0b10000111,
-            0b11 => 0b01111111,
-            _ => unreachable!(),
-        };
+        update_square_channel(&mut self.channel_2, nr21, nr23, nr24);
 
         if nr24 & 0b10000000 != 0 {
-            self.trigger_channel_2(memory_bus);
+            self.trigger_channel_2(nr22);
             //game only triggers channel once
             memory_bus.write(0xFF19, nr24 & !(1 << 7));
             // eprintln!("channel 2 env vol: {}", self.channel_2.envelope.volume);
         }
     }
 
-    fn trigger_channel_2(&mut self, memory_bus: &MemoryBus) {
-        //          7 6 5 4          3          2 1 0
-        //nr22    initial volume    env dir    sweep race
-        let nr22 = memory_bus.read(0xFF17);
+    fn trigger_channel_2(&mut self, nr2: u8) {
         // eprintln!("nr22 = {}", nr22);
 
-        self.channel_2.active = true;
-
-        self.channel_2.envelope.volume = (nr22 >> 4) & 0b00001111;
-
-        self.channel_2.envelope.env_direction = nr22 & 0b00001000 != 0;
-
-        self.channel_2.envelope.env_timer = nr22 & 0b00000111;
-
-        self.channel_2.timer = (2048 - self.channel_2.frequency as u32) * 4;
-
-        self.channel_2.duty_pos = 0;
+        trigger_square_channel(&mut self.channel_2, nr2);
     }
 
     fn update_channel_routing(&mut self, memory_bus: &MemoryBus) {
@@ -248,6 +224,37 @@ impl APU {
     }
 }
 
+fn trigger_square_channel(channel: &mut SquareChannel, nr2: u8) {
+    channel.active = true;
+
+    channel.envelope.volume = (nr2 >> 4) & 0b00001111;
+
+    channel.envelope.env_direction = nr2 & 0b00001000 != 0;
+
+    channel.envelope.env_timer = nr2 & 0b00000111;
+
+    channel.timer = (2048 - channel.frequency as u32) * 4;
+
+    channel.duty_pos = 0;
+}
+
+fn update_square_channel(channel: &mut SquareChannel, nr1: u8, nr3: u8, nr4: u8) {
+    channel.frequency = (nr4 as u16 & 0b00000111) << 8 | nr3 as u16;
+
+    let wave_duty = (nr1 >> 6) & 0b00000011;
+    // Value        Duty cycle
+    //  0b00          12.5%
+    //  0b01          25%
+    //  0b10          50%
+    //  0b11          75%
+    channel.duty = match wave_duty {
+        0b00 => 0b00000001,
+        0b01 => 0b10000001,
+        0b10 => 0b10000111,
+        0b11 => 0b01111111,
+        _ => unreachable!(),
+    };
+}
 struct SquareChannel {
     active: bool,
     timer: u32,
