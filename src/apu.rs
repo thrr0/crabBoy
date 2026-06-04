@@ -132,6 +132,7 @@ impl APU {
     fn update_channel_registers(&mut self, memory_bus: &mut MemoryBus) {
         self.update_master_volume(memory_bus);
 
+        self.update_channel_1(memory_bus);
         self.update_channel_2(memory_bus);
         self.update_channel_routing(memory_bus);
     }
@@ -141,6 +142,39 @@ impl APU {
 
         self.l_master = (nr50 & 0b01110000) >> 4;
         self.r_master = nr50 & 0b00000111;
+    }
+
+    fn update_channel_1(&mut self, memory_bus: &mut MemoryBus) {
+        //          SWEEP
+        //          7     6 5 4    3     2 1 0
+        //nr10      ~      pace   dir    Individual setp
+        let nr10 = memory_bus.read(0xFF10);
+        //          LENGTH TIMER & DUTY CYCLE
+        //          7 6         5 4 3 2 1 0
+        //nr11      wave duty   initial length timer
+        let nr11 = memory_bus.read(0xFF11);
+        //          VOLUME & ENVELOPE
+        //          7 6 5 4          3          2 1 0
+        //nr12    initial volume    env dir    sweep race
+        let nr12 = memory_bus.read(0xFF12);
+
+        //nr13 = low 8 bits of channel 2 frequency
+        let nr13 = memory_bus.read(0xFF13);
+        //          7           6            5 4 3     2 1 0
+        //nr14  trigger     Length enable   -------     high 3 bits of ch2 freq
+        let nr14 = memory_bus.read(0xFF14);
+
+        update_square_channel(&mut self.channel_1, nr11, nr13, nr14);
+
+        if nr14 & 0b10000000 != 0 {
+            self.trigger_channel_1(nr12);
+            //game only triggers channel once
+            memory_bus.write(0xFF14, nr14 & !(1 << 7));
+            // eprintln!("channel 2 env vol: {}", self.channel_2.envelope.volume);
+        }
+        if let Some(sweep) = &mut self.channel_1.sweep {
+            update_sweep(sweep, nr10);
+        }
     }
 
     fn update_channel_2(&mut self, memory_bus: &mut MemoryBus) {
@@ -170,6 +204,16 @@ impl APU {
         // eprintln!("nr22 = {}", nr22);
 
         trigger_square_channel(&mut self.channel_2, nr2);
+    }
+
+    fn trigger_channel_1(&mut self, nr2: u8) {
+        // eprintln!("nr22 = {}", nr22);
+
+        let frequency = self.channel_1.frequency;
+        if let Some(sweep) = &mut self.channel_1.sweep {
+            sweep.sweep_frec = frequency;
+        }
+        trigger_square_channel(&mut self.channel_1, nr2);
     }
 
     fn update_channel_routing(&mut self, memory_bus: &MemoryBus) {
@@ -255,6 +299,13 @@ fn update_square_channel(channel: &mut SquareChannel, nr1: u8, nr3: u8, nr4: u8)
         _ => unreachable!(),
     };
 }
+
+fn update_sweep(sweep: &mut SweepState, nr10: u8) {
+    sweep.sweep_timer = (nr10 as u16 & 0b01110000) >> 4;
+    sweep.sweep_direction = (nr10 & 0b00001000) != 0;
+    sweep.sweep_shift = nr10 & 0b00000111;
+}
+
 struct SquareChannel {
     active: bool,
     timer: u32,
