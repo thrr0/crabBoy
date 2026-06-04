@@ -1,5 +1,5 @@
 # CrabBoy
-Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. Passes dmg-acid2. Runs Tetris, Dr. Mario, Super Mario Land.
+Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. Passes dmg-acid2. Runs Tetris, Dr. Mario, Super Mario Land, Kirby's Dream Land, Donkey Kong Land, Zelda: Link's Awakening, Pokémon Yellow.
 
 ---
 
@@ -26,12 +26,21 @@ Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests. P
 
 ### MBC
 - [x] MBC1
-- [ ] MBC2
-- [ ] MBC3 (+ RTC)
-- [ ] MBC5
+- [x] MBC2
+- [x] MBC3 (+ external RAM + saves)
+- [x] MBC5
 
-### Audio
-- [ ] APU (channels 1-4)
+### Boot ROM
+- [x] DMG boot ROM support (Nintendo logo animation)
+- [x] Hardware mode detection (DMG/GBC)
+
+### Audio (in progress)
+- [x] APU infrastructure (ring buffer, cpal output)
+- [x] Channel 2 (square wave, basic output)
+- [ ] Channel 1 (square wave + sweep)
+- [ ] Channel 3 (wave table)
+- [ ] Channel 4 (noise)
+- [ ] Envelope, length timer, frame sequencer
 
 ---
 
@@ -42,7 +51,10 @@ src/
   cpu.rs        — SM83 CPU, registers, interrupts, timer
   memory.rs     — memory bus, OAM DMA, joypad, MBC
   ppu.rs        — PPU state machine, background, sprites, window
+  apu.rs        — APU, audio channels, sample generation
+  hardware.rs   — hardware mode enum (DMG/GBC)
 roms/
+  boot.gb       — DMG boot ROM
   individual/   — blargg cpu_instrs test ROMs
   games/
 ```

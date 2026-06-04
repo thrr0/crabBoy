@@ -1,5 +1,7 @@
-use crate::{cpu::CPU, ppu::PPU};
+use crate::{apu::APU, cpu::CPU, ppu::PPU};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use minifb::{Key, Window, WindowOptions};
+use ringbuf::traits::*;
 use std::time::{Duration, Instant};
 
 mod apu;
@@ -15,10 +17,36 @@ const COLORS: [u32; 4] = [0xC4CFA1, 0x8B956D, 0x4D533C, 0x1F1F1F]; // GB Pocket
 // const COLORS: [u32; 4] = [0xFFFFFF, 0x666666, 0x333333, 0x000000]; // High contrast
 
 fn main() {
+    //CORE
     let mut cpu = CPU::new();
     let mut ppu = PPU::new();
+    let mut apu = APU::new();
 
+    //FRONTEND
+    //minifb
     let mut window = Window::new("CrabBoy", 160 * 3, 144 * 3, WindowOptions::default()).unwrap();
+
+    //cpal
+    let host = cpal::default_host();
+    let device = host.default_output_device().expect("no output device");
+    let config = device.default_output_config().unwrap();
+    let ring_buffer = ringbuf::HeapRb::<f32>::new(44100 * 2 / 10);
+    let (mut prod, mut cons) = ring_buffer.split();
+
+    let stream = device
+        .build_output_stream(
+            &config.into(),
+            move |data: &mut [f32], _| {
+                for sample in data.iter_mut() {
+                    *sample = cons.try_pop().unwrap_or(0.0);
+                }
+            },
+            |err| eprintln!("audio error: {}", err),
+            None,
+        )
+        .unwrap();
+
+    stream.play().unwrap();
 
     let path = "roms/";
 
@@ -46,6 +74,9 @@ fn main() {
     // filename = "games/metroid 2.gb";
     // filename = "games/pokemon yellow.gb";
     // filename = "games/kirby.gb";
+    // filename = "games/mk.gb";
+    // filename = "games/st2.gb";
+    // filename = "games/contra.gb";
 
     let full_path = format!("{}{}", path, filename);
     let save_path = full_path.replace(".gb", ".sav");
@@ -80,6 +111,15 @@ fn main() {
 
         let cycles = cpu.step();
         ppu.step(&mut cpu.memory_bus, cycles);
+        apu.step(&mut cpu.memory_bus, cycles);
+        // eprintln!(
+        //     "buffer len: {}, first: {:?}",
+        //     apu.buffer.len(),
+        //     apu.buffer.first()
+        // );
+        for sample in apu.buffer.drain(..) {
+            let _ = prod.try_push(sample);
+        }
 
         if ppu.frame_ready {
             let buffer: Vec<u32> = ppu
