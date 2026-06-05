@@ -40,6 +40,7 @@ impl APU {
                     volume: 0,
                     env_timer: 0,
                     env_direction: false,
+                    env_period: 0,
                 },
             },
             channel_2: SquareChannel {
@@ -54,6 +55,7 @@ impl APU {
                     volume: 0,
                     env_timer: 0,
                     env_direction: false,
+                    env_period: 0,
                 },
             },
             channel_3: WaveChannel {
@@ -73,6 +75,7 @@ impl APU {
                     volume: 0,
                     env_timer: 0,
                     env_direction: false,
+                    env_period: 0,
                 },
             },
             channel_routing: ChannelRouting {
@@ -93,11 +96,20 @@ impl APU {
                     right: false,
                 },
             },
+            div_apu: 0,
+            last_div: 0,
         }
     }
 
     pub fn step(&mut self, memory_bus: &mut MemoryBus, cycles: u32) {
         let nr52 = memory_bus.read(0xFF26); // audio master control
+
+        //div-apu is increased every time DIV's bit goes from 0 to 1.
+        if (self.last_div & 0b00010000) != 0 && (memory_bus.read(0xFF04) & 0b00010000) == 0 {
+            self.div_apu = self.div_apu.wrapping_add(1) % 8;
+        }
+
+        self.last_div = memory_bus.read(0xFF04);
 
         //bit 7: audio on/off
         if nr52 & 0x80 == 0 {
@@ -111,6 +123,16 @@ impl APU {
         if self.divider >= 95 {
             self.generate_sample();
             self.divider -= 95;
+        }
+    }
+
+    fn div_apu_events(&mut self) {
+        match self.div_apu {
+            7 => {
+                tick_envelopes(&mut self.channel_1.envelope);
+                tick_envelopes(&mut self.channel_2.envelope);
+            }
+            _ => unreachable!(),
         }
     }
 
@@ -297,6 +319,7 @@ fn trigger_square_channel(channel: &mut SquareChannel, nr2: u8) {
     channel.envelope.env_direction = nr2 & 0b00001000 != 0;
 
     channel.envelope.env_timer = nr2 & 0b00000111;
+    channel.envelope.env_period = nr2 & 0b00000111;
 
     channel.timer = (2048 - channel.frequency as u32) * 4;
 
@@ -325,6 +348,21 @@ fn update_sweep(sweep: &mut SweepState, nr10: u8) {
     sweep.sweep_timer = (nr10 as u16 & 0b01110000) >> 4;
     sweep.sweep_direction = (nr10 & 0b00001000) != 0;
     sweep.sweep_shift = nr10 & 0b00000111;
+}
+
+fn tick_envelopes(envelope: &mut EnvelopeState) {
+    if envelope.env_timer > 0 {
+        envelope.env_timer = envelope.env_timer.wrapping_sub(1);
+    }
+    if envelope.env_timer == 0 {
+        envelope.env_timer = envelope.env_period;
+
+        envelope.volume = if envelope.env_direction {
+            envelope.volume.saturating_add(1).min(15)
+        } else {
+            envelope.volume.saturating_sub(1)
+        }
+    }
 }
 
 struct SquareChannel {
@@ -381,7 +419,8 @@ struct NoiseChannel {
 struct EnvelopeState {
     volume: u8,
     env_timer: u8,
-    env_direction: bool, // 1= up; 0 =down
+    env_period: u8,
+    env_direction: bool,
 }
 struct SweepState {
     sweep_timer: u16,
