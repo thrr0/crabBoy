@@ -11,6 +11,8 @@ pub struct APU {
     channel_3: WaveChannel,
     channel_4: NoiseChannel,
     channel_routing: ChannelRouting,
+    div_apu: u8,
+    last_div: u8,
 }
 
 impl APU {
@@ -116,7 +118,7 @@ impl APU {
         self.divider += cycles as u64;
 
         if self.channel_1.active {
-            self.channel_1.timer = self.channel_1.timer.wrapping_sub(cycles);
+            self.channel_1.tick(cycles);
         }
         if self.channel_2.active {
             self.channel_2.tick(cycles);
@@ -242,8 +244,24 @@ impl APU {
     fn generate_sample(&mut self) {
         // eprintln!("ch2 active: {}", self.channel_2.active);
         // eprintln!("ch2 frequency: {}", self.channel_2.frequency);
+        let ch1_output: u8 = if self.channel_1.active {
+            self.channel_1.output()
+        } else {
+            0
+        };
         let ch2_output: u8 = if self.channel_2.active {
             self.channel_2.output()
+        } else {
+            0
+        };
+
+        let ch1_left: u16 = if self.channel_routing.channel_1.left {
+            ch1_output as u16 * (self.l_master as u16 + 1)
+        } else {
+            0
+        };
+        let ch1_right: u16 = if self.channel_routing.channel_1.right {
+            ch1_output as u16 * (self.r_master as u16 + 1)
         } else {
             0
         };
@@ -259,7 +277,10 @@ impl APU {
             0
         };
 
-        let (l_sample, r_sample) = (ch2_left as f32 / 120.0, ch2_right as f32 / 120.0);
+        let (l_sample, r_sample) = (
+            (ch1_left as f32 + ch2_left as f32) / 240.0,
+            (ch1_right as f32 + ch2_right as f32) / 240.0,
+        );
 
         // eprintln!("l_sample: {}", l_sample);
         // eprintln!("r_sample: {}", r_sample);
