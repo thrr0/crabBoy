@@ -13,11 +13,14 @@ pub struct APU {
     channel_routing: ChannelRouting,
     div_apu: u8,
     last_div: u8,
+
+    env_tick_count: u32,
 }
 
 impl APU {
     pub fn new() -> APU {
         APU {
+            env_tick_count: 0,
             active: false,
             divider: 0,
             l_master: 0,
@@ -30,6 +33,7 @@ impl APU {
                 frequency: 0,
                 duty_pos: 0,
                 length_timer: 0,
+                length_enable: false,
                 sweep: Some(SweepState {
                     sweep_timer: 0,
                     sweep_direction: false,
@@ -50,6 +54,7 @@ impl APU {
                 frequency: 0,
                 duty_pos: 0,
                 length_timer: 0,
+                length_enable: false,
                 sweep: None,
                 envelope: EnvelopeState {
                     volume: 0,
@@ -104,9 +109,11 @@ impl APU {
     pub fn step(&mut self, memory_bus: &mut MemoryBus, cycles: u32) {
         let nr52 = memory_bus.read(0xFF26); // audio master control
 
+        let mut ticked = false;
         //div-apu is increased every time DIV's bit goes from 0 to 1.
         if (self.last_div & 0b00010000) != 0 && (memory_bus.read(0xFF04) & 0b00010000) == 0 {
             self.div_apu = self.div_apu.wrapping_add(1) % 8;
+            ticked = true;
         }
 
         self.last_div = memory_bus.read(0xFF04);
@@ -114,6 +121,10 @@ impl APU {
         //bit 7: audio on/off
         if nr52 & 0x80 == 0 {
             return;
+        }
+
+        if ticked {
+            self.div_apu_events();
         }
 
         self.update_channel_registers(memory_bus);
@@ -128,11 +139,19 @@ impl APU {
 
     fn div_apu_events(&mut self) {
         match self.div_apu {
+            0 | 2 | 4 | 6 => {
+                tick_length_timers(&mut self.channel_1);
+                tick_length_timers(&mut self.channel_2);
+            }
             7 => {
+                self.env_tick_count += 1;
+                if self.env_tick_count % 64 == 0 {
+                    eprintln!("env ticks: {}", self.env_tick_count);
+                }
                 tick_envelopes(&mut self.channel_1.envelope);
                 tick_envelopes(&mut self.channel_2.envelope);
             }
-            _ => unreachable!(),
+            _ => {}
         }
     }
 
@@ -228,6 +247,9 @@ impl APU {
         // eprintln!("nr22 = {}", nr22);
 
         trigger_square_channel(&mut self.channel_2, nr2);
+
+        // eprint!("ch2 env timer: {}", self.channel_2.envelope.env_timer);
+        // eprint!("ch2 env period: {}", self.channel_2.envelope.env_period);
     }
 
     fn trigger_channel_1(&mut self, nr2: u8) {
@@ -320,14 +342,15 @@ fn trigger_square_channel(channel: &mut SquareChannel, nr2: u8) {
 
     channel.envelope.env_timer = nr2 & 0b00000111;
     channel.envelope.env_period = nr2 & 0b00000111;
-
     channel.timer = (2048 - channel.frequency as u32) * 4;
 
     channel.duty_pos = 0;
+    // eprintln!("length_enable: {}", channel.length_enable);
 }
 
 fn update_square_channel(channel: &mut SquareChannel, nr1: u8, nr3: u8, nr4: u8) {
     channel.frequency = (nr4 as u16 & 0b00000111) << 8 | nr3 as u16;
+    channel.length_enable = (nr4 & 0b01000000) != 0;
 
     let wave_duty = (nr1 >> 6) & 0b00000011;
     // Value        Duty cycle
@@ -351,6 +374,9 @@ fn update_sweep(sweep: &mut SweepState, nr10: u8) {
 }
 
 fn tick_envelopes(envelope: &mut EnvelopeState) {
+    if envelope.env_period == 0 {
+        return;
+    }
     if envelope.env_timer > 0 {
         envelope.env_timer = envelope.env_timer.wrapping_sub(1);
     }
@@ -365,6 +391,16 @@ fn tick_envelopes(envelope: &mut EnvelopeState) {
     }
 }
 
+fn tick_length_timers(channel: &mut SquareChannel) {
+    if channel.length_enable {
+        channel.length_timer = channel.length_timer.saturating_sub(1);
+
+        if channel.length_timer == 0 {
+            channel.active = false;
+        }
+    }
+}
+
 struct SquareChannel {
     active: bool,
     timer: u32,
@@ -372,6 +408,7 @@ struct SquareChannel {
     duty: u8,
     duty_pos: u8,
     length_timer: u8,
+    length_enable: bool,
     sweep: Option<SweepState>,
     envelope: EnvelopeState,
 }
