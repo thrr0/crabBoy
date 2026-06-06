@@ -13,14 +13,11 @@ pub struct APU {
     channel_routing: ChannelRouting,
     div_apu: u8,
     last_div: u8,
-
-    env_tick_count: u32,
 }
 
 impl APU {
     pub fn new() -> APU {
         APU {
-            env_tick_count: 0,
             active: false,
             divider: 0,
             l_master: 0,
@@ -74,10 +71,12 @@ impl APU {
             channel_4: NoiseChannel {
                 active: false,
                 timer: 0,
+                timer_period: 0,
                 lfsr: 0x7FFF,
                 short_mode: false,
                 length_timer: 0,
-                env: EnvelopeState {
+                length_enable: false,
+                envelope: EnvelopeState {
                     volume: 0,
                     env_timer: 0,
                     env_direction: false,
@@ -150,12 +149,9 @@ impl APU {
                 tick_sweep(&mut self.channel_1);
             }
             7 => {
-                self.env_tick_count += 1;
-                if self.env_tick_count % 64 == 0 {
-                    eprintln!("env ticks: {}", self.env_tick_count);
-                }
                 tick_envelopes(&mut self.channel_1.envelope);
                 tick_envelopes(&mut self.channel_2.envelope);
+                tick_envelopes(&mut self.channel_4.envelope);
             }
             _ => {}
         }
@@ -174,7 +170,7 @@ impl APU {
             self.channel_3.timer = self.channel_3.timer.wrapping_sub(cycles);
         }
         if self.channel_4.active {
-            self.channel_4.timer = self.channel_4.timer.wrapping_sub(cycles);
+            self.channel_4.tick(cycles);
         }
     }
 
@@ -183,6 +179,7 @@ impl APU {
 
         self.update_channel_1(memory_bus);
         self.update_channel_2(memory_bus);
+        self.update_channel_4(memory_bus);
         self.update_channel_routing(memory_bus);
     }
 
@@ -249,13 +246,19 @@ impl APU {
         }
     }
 
-    fn trigger_channel_2(&mut self, nr2: u8) {
-        // eprintln!("nr22 = {}", nr22);
+    fn update_channel_4(&mut self, memory_bus: &mut MemoryBus) {
+        let nr41 = memory_bus.read(0xFF20);
+        let nr42 = memory_bus.read(0xFF21);
+        let nr43 = memory_bus.read(0xFF22);
+        let nr44 = memory_bus.read(0xFF23);
 
-        trigger_square_channel(&mut self.channel_2, nr2);
+        self.channel_4.length_timer = nr41 & 0b00111111;
+        self.channel_4.length_enable = nr44 & 0b01000000 != 0;
 
-        // eprint!("ch2 env timer: {}", self.channel_2.envelope.env_timer);
-        // eprint!("ch2 env period: {}", self.channel_2.envelope.env_period);
+        if nr44 & 0b10000000 != 0 {
+            self.trigger_channel_4(nr42, nr43);
+            memory_bus.write(0xFF23, nr44 & !(1 << 7));
+        }
     }
 
     fn trigger_channel_1(&mut self, nr2: u8) {
@@ -266,6 +269,33 @@ impl APU {
             sweep.sweep_frec = frequency;
         }
         trigger_square_channel(&mut self.channel_1, nr2);
+    }
+
+    fn trigger_channel_2(&mut self, nr2: u8) {
+        // eprintln!("nr22 = {}", nr22);
+
+        trigger_square_channel(&mut self.channel_2, nr2);
+
+        // eprint!("ch2 env timer: {}", self.channel_2.envelope.env_timer);
+        // eprint!("ch2 env period: {}", self.channel_2.envelope.env_period);
+    }
+
+    fn trigger_channel_4(&mut self, nr2: u8, nr3: u8) {
+        let r = nr3 & 0b00000111;
+        let s = (nr3 & 0b11110000) >> 4;
+        let divisor: u32 = if r == 0 { 8 } else { r as u32 * 16 };
+        self.channel_4.active = true;
+
+        self.channel_4.envelope.volume = (nr2 >> 4) & 0b00001111;
+
+        self.channel_4.envelope.env_direction = nr2 & 0b00001000 != 0;
+
+        self.channel_4.envelope.env_timer = nr2 & 0b00000111;
+        self.channel_4.envelope.env_period = nr2 & 0b00000111;
+        self.channel_4.timer = divisor << s;
+        self.channel_4.timer_period = divisor << s;
+
+        self.channel_4.lfsr = 0x7FFF;
     }
 
     fn update_channel_routing(&mut self, memory_bus: &MemoryBus) {
@@ -305,6 +335,12 @@ impl APU {
             0
         };
 
+        let ch4_output: u8 = if self.channel_4.active {
+            self.channel_4.output()
+        } else {
+            0
+        };
+
         let ch1_left: u16 = if self.channel_routing.channel_1.left {
             ch1_output as u16 * (self.l_master as u16 + 1)
         } else {
@@ -327,9 +363,20 @@ impl APU {
             0
         };
 
+        let ch4_left: u16 = if self.channel_routing.channel_4.left {
+            ch4_output as u16 * (self.l_master as u16 + 1)
+        } else {
+            0
+        };
+        let ch4_right: u16 = if self.channel_routing.channel_4.right {
+            ch4_output as u16 * (self.r_master as u16 + 1)
+        } else {
+            0
+        };
+
         let (l_sample, r_sample) = (
-            (ch1_left as f32 + ch2_left as f32) / 240.0,
-            (ch1_right as f32 + ch2_right as f32) / 240.0,
+            (ch1_left as f32 + ch2_left as f32 + ch4_left as f32) / 360.0,
+            (ch1_right as f32 + ch2_right as f32 + ch4_right as f32) / 360.0,
         );
 
         // eprintln!("l_sample: {}", l_sample);
@@ -491,10 +538,39 @@ struct WaveChannel {
 struct NoiseChannel {
     active: bool,
     timer: u32,
+    timer_period: u32,
     lfsr: u16,
     short_mode: bool, //whether lfsr uses 7 or 15 bits
     length_timer: u8,
-    env: EnvelopeState,
+    length_enable: bool,
+    envelope: EnvelopeState,
+}
+impl NoiseChannel {
+    fn tick(&mut self, cycles: u32) {
+        self.timer = self.timer.saturating_sub(cycles);
+
+        if self.timer == 0 {
+            let cur_lfsr = self.lfsr;
+            let xor = (cur_lfsr & 0b000000001) ^ (cur_lfsr & 0b00000010) >> 1;
+            self.lfsr = cur_lfsr >> 1;
+            self.lfsr = self.lfsr & !(1 << 14);
+            self.lfsr = self.lfsr | (xor << 14);
+
+            if self.short_mode {
+                self.lfsr = self.lfsr & !(1 << 6);
+                self.lfsr = self.lfsr | (xor << 6);
+            }
+
+            self.timer = self.timer_period;
+        }
+    }
+    fn output(&mut self) -> u8 {
+        if (self.lfsr & 0b00000001) == 0 {
+            self.envelope.volume
+        } else {
+            0
+        }
+    }
 }
 
 struct EnvelopeState {
