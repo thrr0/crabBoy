@@ -39,6 +39,7 @@ impl APU {
                     sweep_direction: false,
                     sweep_shift: 0,
                     sweep_frec: 0,
+                    sweep_pace: 0,
                 }),
                 envelope: EnvelopeState {
                     volume: 0,
@@ -139,9 +140,14 @@ impl APU {
 
     fn div_apu_events(&mut self) {
         match self.div_apu {
-            0 | 2 | 4 | 6 => {
+            0 | 4 => {
                 tick_length_timers(&mut self.channel_1);
                 tick_length_timers(&mut self.channel_2);
+            }
+            2 | 6 => {
+                tick_length_timers(&mut self.channel_1);
+                tick_length_timers(&mut self.channel_2);
+                tick_sweep(&mut self.channel_1);
             }
             7 => {
                 self.env_tick_count += 1;
@@ -371,6 +377,7 @@ fn update_sweep(sweep: &mut SweepState, nr10: u8) {
     sweep.sweep_timer = (nr10 as u16 & 0b01110000) >> 4;
     sweep.sweep_direction = (nr10 & 0b00001000) != 0;
     sweep.sweep_shift = nr10 & 0b00000111;
+    sweep.sweep_pace = (nr10 & 0b01110000) >> 4;
 }
 
 fn tick_envelopes(envelope: &mut EnvelopeState) {
@@ -397,6 +404,43 @@ fn tick_length_timers(channel: &mut SquareChannel) {
 
         if channel.length_timer == 0 {
             channel.active = false;
+        }
+    }
+}
+
+fn tick_sweep(channel_1: &mut SquareChannel) {
+    let new_freq = {
+        if let Some(sweep) = &mut channel_1.sweep {
+            match sweep.sweep_timer {
+                0 => sweep.sweep_timer = sweep.sweep_pace as u16,
+                _ => sweep.sweep_timer = sweep.sweep_timer.saturating_sub(1),
+            };
+
+            if sweep.sweep_shift > 0 {
+                let new_freq = if sweep.sweep_direction {
+                    sweep.sweep_frec - (sweep.sweep_frec >> sweep.sweep_shift)
+                } else {
+                    sweep.sweep_frec + (sweep.sweep_frec >> sweep.sweep_shift)
+                };
+
+                if new_freq < 2047 {
+                    sweep.sweep_frec = new_freq;
+                }
+
+                Some(new_freq)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    if let Some(freq) = new_freq {
+        if freq > 2047 {
+            channel_1.active = false;
+        } else {
+            channel_1.frequency = freq;
         }
     }
 }
@@ -464,6 +508,7 @@ struct SweepState {
     sweep_direction: bool,
     sweep_shift: u8,
     sweep_frec: u16,
+    sweep_pace: u8,
 }
 
 struct ChannelRouting {
