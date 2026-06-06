@@ -68,11 +68,11 @@ fn main() {
     //GAMES
     // filename = "games/dr mario.gb";
     // filename = "games/super mario land.gb";
-    // filename = "games/zelda.gb";
+    filename = "games/zelda.gb";
     // filename = "games/wario land.gb";
     // filename = "games/donkey kong 3.gb";
     // filename = "games/metroid 2.gb";
-    filename = "games/pokemon yellow.gb";
+    // filename = "games/pokemon yellow.gb";
     // filename = "games/kirby.gb";
     // filename = "games/mk.gb";
     // filename = "games/st2.gb";

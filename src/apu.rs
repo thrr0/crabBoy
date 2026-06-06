@@ -140,12 +140,14 @@ impl APU {
     fn div_apu_events(&mut self) {
         match self.div_apu {
             0 | 4 => {
-                tick_length_timers(&mut self.channel_1);
-                tick_length_timers(&mut self.channel_2);
+                self.channel_1.tick_length_timers();
+                self.channel_2.tick_length_timers();
+                self.channel_4.tick_length_timers();
             }
             2 | 6 => {
-                tick_length_timers(&mut self.channel_1);
-                tick_length_timers(&mut self.channel_2);
+                self.channel_1.tick_length_timers();
+                self.channel_2.tick_length_timers();
+                self.channel_4.tick_length_timers();
                 tick_sweep(&mut self.channel_1);
             }
             7 => {
@@ -252,11 +254,8 @@ impl APU {
         let nr43 = memory_bus.read(0xFF22);
         let nr44 = memory_bus.read(0xFF23);
 
-        self.channel_4.length_timer = nr41 & 0b00111111;
-        self.channel_4.length_enable = nr44 & 0b01000000 != 0;
-
         if nr44 & 0b10000000 != 0 {
-            self.trigger_channel_4(nr42, nr43);
+            self.trigger_channel_4(nr41, nr42, nr43, nr44);
             memory_bus.write(0xFF23, nr44 & !(1 << 7));
         }
     }
@@ -280,10 +279,11 @@ impl APU {
         // eprint!("ch2 env period: {}", self.channel_2.envelope.env_period);
     }
 
-    fn trigger_channel_4(&mut self, nr2: u8, nr3: u8) {
+    fn trigger_channel_4(&mut self, nr1: u8, nr2: u8, nr3: u8, nr4: u8) {
         let r = nr3 & 0b00000111;
         let s = (nr3 & 0b11110000) >> 4;
         let divisor: u32 = if r == 0 { 8 } else { r as u32 * 16 };
+
         self.channel_4.active = true;
 
         self.channel_4.envelope.volume = (nr2 >> 4) & 0b00001111;
@@ -295,6 +295,10 @@ impl APU {
         self.channel_4.timer = divisor << s;
         self.channel_4.timer_period = divisor << s;
 
+        self.channel_4.length_timer = nr1 & 0b00111111;
+        self.channel_4.length_enable = nr4 & 0b01000000 != 0;
+
+        // eprintln!( "active: {}, length_enable: {}, length_timer: {}", self.channel_4.active, self.channel_4.length_enable, self.channel_4.length_timer);
         self.channel_4.lfsr = 0x7FFF;
     }
 
@@ -445,16 +449,6 @@ fn tick_envelopes(envelope: &mut EnvelopeState) {
     }
 }
 
-fn tick_length_timers(channel: &mut SquareChannel) {
-    if channel.length_enable {
-        channel.length_timer = channel.length_timer.saturating_sub(1);
-
-        if channel.length_timer == 0 {
-            channel.active = false;
-        }
-    }
-}
-
 fn tick_sweep(channel_1: &mut SquareChannel) {
     let new_freq = {
         if let Some(sweep) = &mut channel_1.sweep {
@@ -525,6 +519,16 @@ impl SquareChannel {
             0
         }
     }
+
+    fn tick_length_timers(&mut self) {
+        if self.length_enable {
+            self.length_timer = self.length_timer.saturating_sub(1);
+
+            if self.length_timer == 0 {
+                self.active = false;
+            }
+        }
+    }
 }
 
 struct WaveChannel {
@@ -569,6 +573,17 @@ impl NoiseChannel {
             self.envelope.volume
         } else {
             0
+        }
+    }
+
+    fn tick_length_timers(&mut self) {
+        if self.length_enable {
+            self.length_timer = self.length_timer.saturating_sub(1);
+
+            // eprintln!("length_timer ch4: {}", self.length_timer);
+            if self.length_timer == 0 {
+                self.active = false;
+            }
         }
     }
 }
