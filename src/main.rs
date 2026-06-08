@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 
 mod apu;
 mod cpu;
+mod gameboy;
 mod hardware;
 mod memory;
 mod ppu;
