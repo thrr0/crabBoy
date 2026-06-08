@@ -1,5 +1,3 @@
-use std::io::LineWriter;
-
 use crate::{apu::APU, cpu::CPU, ppu::PPU};
 
 pub struct GameBoy {

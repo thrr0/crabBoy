@@ -1,15 +1,8 @@
-use crate::gameboy::GameBoy;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use crabboy_core::gameboy::{Buttons, GameBoy};
 use minifb::{Key, Window, WindowOptions};
 use ringbuf::traits::*;
 use std::time::{Duration, Instant};
-
-mod apu;
-mod cpu;
-mod gameboy;
-mod hardware;
-mod memory;
-mod ppu;
 
 // const COLORS: [u32; 4] = [0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F]; // DMG original const
 // const COLORS: [u32; 4] = [0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000]; // Black & white
@@ -88,14 +81,14 @@ fn main() {
     let mut last_frame = Instant::now();
 
     loop {
-        gameboy.set_button(gameboy::Buttons::Up, window.is_key_down(Key::W));
-        gameboy.set_button(gameboy::Buttons::Down, window.is_key_down(Key::S));
-        gameboy.set_button(gameboy::Buttons::Left, window.is_key_down(Key::A));
-        gameboy.set_button(gameboy::Buttons::Right, window.is_key_down(Key::D));
-        gameboy.set_button(gameboy::Buttons::A, window.is_key_down(Key::Period));
-        gameboy.set_button(gameboy::Buttons::B, window.is_key_down(Key::Comma));
-        gameboy.set_button(gameboy::Buttons::Select, window.is_key_down(Key::Backspace));
-        gameboy.set_button(gameboy::Buttons::Start, window.is_key_down(Key::Enter));
+        gameboy.set_button(Buttons::Up, window.is_key_down(Key::W));
+        gameboy.set_button(Buttons::Down, window.is_key_down(Key::S));
+        gameboy.set_button(Buttons::Left, window.is_key_down(Key::A));
+        gameboy.set_button(Buttons::Right, window.is_key_down(Key::D));
+        gameboy.set_button(Buttons::A, window.is_key_down(Key::Period));
+        gameboy.set_button(Buttons::B, window.is_key_down(Key::Comma));
+        gameboy.set_button(Buttons::Select, window.is_key_down(Key::Backspace));
+        gameboy.set_button(Buttons::Start, window.is_key_down(Key::Enter));
 
         if gameboy.step() {
             let video_buffer: Vec<u32> = gameboy

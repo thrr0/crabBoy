@@ -191,10 +191,15 @@ dependencies = [
 ]
 
 [[package]]
-name = "craBoy"
+name = "crabboy-core"
+version = "0.1.0"
+
+[[package]]
+name = "crabboy-desktop"
 version = "0.1.0"
 dependencies = [
  "cpal",
+ "crabboy-core",
  "minifb",
  "ringbuf",
 ]
