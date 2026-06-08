@@ -1,4 +1,4 @@
-use crate::{apu::APU, cpu::CPU, ppu::PPU};
+use crate::gameboy::GameBoy;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use minifb::{Key, Window, WindowOptions};
 use ringbuf::traits::*;
@@ -19,9 +19,7 @@ const COLORS: [u32; 4] = [0xC4CFA1, 0x8B956D, 0x4D533C, 0x1F1F1F]; // GB Pocket
 
 fn main() {
     //CORE
-    let mut cpu = CPU::new();
-    let mut ppu = PPU::new();
-    let mut apu = APU::new();
+    let mut gameboy = GameBoy::new();
 
     //FRONTEND
     //minifb
@@ -80,10 +78,8 @@ fn main() {
     // filename = "games/contra.gb";
 
     let full_path = format!("{}{}", path, filename);
-    let save_path = full_path.replace(".gb", ".sav");
 
-    cpu.memory_bus.load_rom(&full_path);
-    cpu.memory_bus.load_ram(&save_path);
+    gameboy.load_rom(full_path);
 
     let frame_duration = Duration::from_nanos(16_666_667);
     // let frame_duration = Duration::from_nanos(8_333_332);
@@ -92,46 +88,31 @@ fn main() {
     let mut last_frame = Instant::now();
 
     loop {
-        cpu.memory_bus.joypad.up = window.is_key_down(Key::W);
-        cpu.memory_bus.joypad.down = window.is_key_down(Key::S);
-        cpu.memory_bus.joypad.left = window.is_key_down(Key::A);
-        cpu.memory_bus.joypad.right = window.is_key_down(Key::D);
-        cpu.memory_bus.joypad.a_button = window.is_key_down(Key::J);
-        cpu.memory_bus.joypad.b_button = window.is_key_down(Key::K);
-        cpu.memory_bus.joypad.select = window.is_key_down(Key::Comma);
-        cpu.memory_bus.joypad.start = window.is_key_down(Key::Period);
+        gameboy.set_button(gameboy::Buttons::Up, window.is_key_down(Key::W));
+        gameboy.set_button(gameboy::Buttons::Down, window.is_key_down(Key::S));
+        gameboy.set_button(gameboy::Buttons::Left, window.is_key_down(Key::A));
+        gameboy.set_button(gameboy::Buttons::Right, window.is_key_down(Key::D));
+        gameboy.set_button(gameboy::Buttons::A, window.is_key_down(Key::Period));
+        gameboy.set_button(gameboy::Buttons::B, window.is_key_down(Key::Comma));
+        gameboy.set_button(gameboy::Buttons::Select, window.is_key_down(Key::Backspace));
+        gameboy.set_button(gameboy::Buttons::Start, window.is_key_down(Key::Enter));
 
-        if cpu.memory_bus.ram_dirty {
-            if cpu.memory_bus.save_ram(&save_path) {
-                // eprintln!(".sav succesfully written");
-            } else {
-                eprintln!(".sav not written");
-            }
-            cpu.memory_bus.ram_dirty = false;
-        }
-
-        let cycles = cpu.step();
-        ppu.step(&mut cpu.memory_bus, cycles);
-        apu.step(&mut cpu.memory_bus, cycles);
-        // eprintln!(
-        //     "buffer len: {}, first: {:?}",
-        //     apu.buffer.len(),
-        //     apu.buffer.first()
-        // );
-        for sample in apu.buffer.drain(..) {
-            let _ = prod.try_push(sample);
-        }
-
-        if ppu.frame_ready {
-            let buffer: Vec<u32> = ppu
-                .framebuffer
+        if gameboy.step() {
+            let video_buffer: Vec<u32> = gameboy
+                .framebuffer()
                 .iter()
                 .map(|&c| COLORS[c as usize])
                 .collect();
-            window.update_with_buffer(&buffer, 160, 144).unwrap();
 
-            ppu.frame_ready = false;
+            window.update_with_buffer(&video_buffer, 160, 144).unwrap();
 
+            let audio_buffer = gameboy.drain_audio();
+
+            for sample in audio_buffer {
+                let _ = prod.try_push(sample);
+            }
+
+            // frame timing
             let elapsed = last_frame.elapsed();
             if elapsed < frame_duration {
                 std::thread::sleep(frame_duration - elapsed);
