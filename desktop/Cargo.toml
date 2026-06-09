@@ -8,3 +8,8 @@ crabboy-core = { path = "../core" }
 minifb = "0.27"
 cpal = "0.15"
 ringbuf = "0.4"
+egui = "0.29"
+eframe = "0.29"
+serde = {version = "1", features = ["derive"] }
+toml = "0.8"
+rfd = "0.15"
