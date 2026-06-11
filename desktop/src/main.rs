@@ -1,12 +1,16 @@
+use std::time::{Duration, Instant};
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crabboy_core::gameboy::{Buttons, GameBoy};
 use minifb::{Key, Window, WindowOptions};
 use ringbuf::traits::*;
-use std::time::{Duration, Instant};
 
+use crate::app::App;
 use crate::config::Config;
 
+mod app;
 mod config;
+
 // const COLORS: [u32; 4] = [0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F]; // DMG original const
 // const COLORS: [u32; 4] = [0xFFFFFF, 0xAAAAAA, 0x555555, 0x000000]; // Black & white
 // const COLORS: [u32; 4] = [0xC4CFA1, 0x8B956D, 0x4D533C, 0x1F1F1F]; // GB Pocket
@@ -14,22 +18,11 @@ mod config;
 // const COLORS: [u32; 4] = [0xFFFFFF, 0x666666, 0x333333, 0x000000]; // High contrast
 
 fn main() {
-    //CORE
+    let config = Config::default();
     let mut gameboy = GameBoy::new();
 
-    let config = Config::load("config.toml");
+    let mut window = Window::new("CrabBoy", 160 * 3, 144 * 3, WindowOptions::default()).unwrap();
 
-    //FRONTEND
-    //minifb
-    let mut window = Window::new(
-        "CrabBoy",
-        160 * config.scale as usize,
-        144 * config.scale as usize,
-        WindowOptions::default(),
-    )
-    .unwrap();
-
-    //cpal
     let host = cpal::default_host();
     let device = host.default_output_device().expect("no output device");
     let output_config = device.default_output_config().unwrap();
@@ -52,7 +45,7 @@ fn main() {
     stream.play().unwrap();
 
     let path = rfd::FileDialog::new()
-        .add_filter("GameBoy ROM", &["gb"])
+        .add_filter("Game Boy ROM", &["gb", "gbc"])
         .pick_file();
 
     if let Some(path) = path {
@@ -60,7 +53,6 @@ fn main() {
     } else {
         return;
     }
-
     let frame_duration = Duration::from_nanos(16_666_667);
     // let frame_duration = Duration::from_nanos(8_333_332);
     // let frame_duration = Duration::from_nanos(512_222_223);
