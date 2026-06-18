@@ -1,11 +1,9 @@
 # CrabBoy
-
 A working Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests and dmg-acid2. Runs most commercial GB games including Tetris, Super Mario Land, Kirby's Dream Land, Zelda: Link's Awakening, Pokémon Yellow, and more.
 
 ---
 
 ## Features
-
 - **CPU** — Full SM83 instruction set, interrupts (V-Blank, LCD STAT, Timer, Joypad), IME, HALT, timer
 - **PPU** — Background/window/sprite rendering, scroll, palettes, OAM DMA, LCD STAT
 - **APU** — All 4 channels (square wave, wave table, noise), envelope, length timer, DIV-APU sequencer, stereo routing
@@ -14,31 +12,37 @@ A working Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs
 - **Input** — Full joypad support
 
 ## Project Structure
-
 ```
-src/
-  main.rs       — window, game loop, ROM loading
-  cpu.rs        — SM83 CPU, registers, interrupts, timer
-  memory.rs     — memory bus, OAM DMA, joypad, MBC
-  ppu.rs        — PPU state machine, background, sprites, window
-  apu.rs        — APU, audio channels, sample generation
-  hardware.rs   — hardware mode enum (DMG/GBC)
+core/     — emulator library (published on crates.io)
+  src/
+    lib.rs
+    cpu.rs        — SM83 CPU, registers, interrupts, timer
+    memory.rs     — memory bus, OAM DMA, joypad, MBC
+    ppu.rs        — PPU state machine, background, sprites, window
+    apu.rs        — APU, audio channels, sample generation
+    hardware.rs   — hardware mode enum (DMG/GBC)
+
+desktop/  — desktop frontend (minifb)
+  src/
+    main.rs       — window, game loop, ROM loading
+
 roms/
-  boot.gb       — DMG boot ROM
-  individual/   — blargg cpu_instrs test ROMs
-  games/
+  boot.gb         — DMG boot ROM
+  individual/     — blargg cpu_instrs test ROMs
 ```
 
 ## Running
-
 ```bash
 cargo run
 ```
 
-Change the `load_rom` call in `main.rs` to switch ROMs.
+## Using the core as a library
+```toml
+[dependencies]
+crabboy-core = "x.x.x"
+```
 
 ## References
-
 | Resource | Purpose |
 |----------|---------|
 | [Pan Docs](https://gbdev.io/pandocs/) | Hardware reference |

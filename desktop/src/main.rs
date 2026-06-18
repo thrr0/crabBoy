@@ -5,10 +5,8 @@ use crabboy_core::gameboy::{Buttons, GameBoy};
 use minifb::{Key, Window, WindowOptions};
 use ringbuf::traits::*;
 
-use crate::app::App;
 use crate::config::Config;
 
-mod app;
 mod config;
 
 // const COLORS: [u32; 4] = [0x9BBC0F, 0x8BAC0F, 0x306230, 0x0F380F]; // DMG original const
