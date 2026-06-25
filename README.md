@@ -1,48 +1,55 @@
 # CrabBoy
+
 A working Game Boy (DMG) emulator written in Rust. Passes all blargg `cpu_instrs` tests and dmg-acid2. Runs most commercial GB games including Tetris, Super Mario Land, Kirby's Dream Land, Zelda: Link's Awakening, Pokémon Yellow, and more.
 
 ---
 
 ## Features
+
 - **CPU** — Full SM83 instruction set, interrupts (V-Blank, LCD STAT, Timer, Joypad), IME, HALT, timer
 - **PPU** — Background/window/sprite rendering, scroll, palettes, OAM DMA, LCD STAT
 - **APU** — All 4 channels (square wave, wave table, noise), envelope, length timer, DIV-APU sequencer, stereo routing
 - **MBC** — MBC1, MBC2, MBC3, MBC5 with external RAM and save states (.sav)
-- **Boot ROM** — DMG boot ROM support with Nintendo logo animation
+- **Boot ROM** — DMG boot ROM embedded at compile time
 - **Input** — Full joypad support
 
 ## Project Structure
+
 ```
-core/     — emulator library (published on crates.io)
+core/         — emulator library (published on crates.io as crabboy-core)
   src/
-    lib.rs
+    gameboy.rs    — public API
     cpu.rs        — SM83 CPU, registers, interrupts, timer
     memory.rs     — memory bus, OAM DMA, joypad, MBC
     ppu.rs        — PPU state machine, background, sprites, window
     apu.rs        — APU, audio channels, sample generation
     hardware.rs   — hardware mode enum (DMG/GBC)
-
-desktop/  — desktop frontend (minifb)
+desktop/      — desktop frontend (minifb + cpal)
   src/
     main.rs       — window, game loop, ROM loading
-
+wasm/         — WASM bindings (wasm-bindgen) — in progress
 roms/
   boot.gb         — DMG boot ROM
   individual/     — blargg cpu_instrs test ROMs
 ```
 
-## Running
+## Running the desktop build
+
 ```bash
-cargo run
+cargo run -p crabboy-desktop
 ```
 
 ## Using the core as a library
+
 ```toml
 [dependencies]
-crabboy-core = "x.x.x"
+crabboy-core = "0.1.0"
 ```
 
+See [core/README.md](core/README.md) for the full API reference.
+
 ## References
+
 | Resource | Purpose |
 |----------|---------|
 | [Pan Docs](https://gbdev.io/pandocs/) | Hardware reference |

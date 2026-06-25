@@ -11,11 +11,11 @@
 //0xFEA0-0xFEFF: Not usable
 //0xFF80-0xFFFE: High RAM
 //0xFFFF: Interrupt enable register (IE)
-use std::fs;
 
 use crate::hardware::HardwareMode;
 
 pub const MEMORY_BUS_SIZE: usize = 65536;
+const BOOT_ROM: &[u8] = include_bytes!("../../roms/boot.gb");
 
 pub struct MemoryBus {
     pub memory: [u8; MEMORY_BUS_SIZE],
@@ -234,8 +234,8 @@ impl MemoryBus {
         }
     }
 
-    pub fn load_rom(&mut self, path: &str) {
-        self.rom = fs::read(path).unwrap();
+    pub fn load_rom(&mut self, rom: Vec<u8>) {
+        self.rom = rom;
 
         eprintln!("mbc type;: {:#04x}", self.rom[0x0147]);
         self.mbc_type = self.rom[0x0147];
@@ -262,38 +262,28 @@ impl MemoryBus {
         };
 
         if matches!(self.hardware_mode, HardwareMode::DMG) {
-            if let Ok(bytes) = fs::read("roms/boot.gb") {
-                let mut arr = [0u8; 256];
-                arr.copy_from_slice(&bytes[..256]);
-                self.boot_rom = Some(arr);
-                self.boot_rom_active = true;
-                eprintln!("boot rom loaded");
-            } else {
-                panic!("boot rom missing");
-            }
+            let mut arr = [0u8; 256];
+            arr.copy_from_slice(&BOOT_ROM[..256]);
+            self.boot_rom = Some(arr);
+            self.boot_rom_active = true;
+            eprintln!("boot rom loaded");
         }
         // TO DO: gbc and both modes handle
 
         self.memory[0x0000..0x4000].copy_from_slice(&self.rom[0x0000..0x4000]);
     }
 
-    pub fn load_ram(&mut self, path: &str) {
-        if let Ok(bytes) = fs::read(path) {
-            eprintln!(".sav loaded");
-
-            if bytes.len() == self.ram.len() {
-                eprint!(".sav length ok");
-                self.ram = bytes;
-            } else {
-                eprintln!(".sav length is wrong!!");
-            }
+    pub fn load_ram(&mut self, sav: Vec<u8>) {
+        if sav.len() == self.ram.len() {
+            self.ram = sav;
         } else {
-            eprintln!(".sav not loaded");
+            eprintln!(".sav length is wrong!!");
         }
     }
 
-    pub fn save_ram(&mut self, path: &str) -> bool {
-        fs::write(path, &self.ram).is_ok()
+    pub fn save_ram(&mut self) -> Vec<u8> {
+        let sav = self.ram.clone();
+        sav
     }
 }
 

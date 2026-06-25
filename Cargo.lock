@@ -901,11 +901,17 @@ name = "crabboy-core"
 version = "0.1.0"
 
 [[package]]
+name = "crabboy-core"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "26a5eae03c4439c3327f7a79d5b613b2db90f3762126773bad056113e35a397a"
+
+[[package]]
 name = "crabboy-desktop"
 version = "0.1.0"
 dependencies = [
  "cpal",
- "crabboy-core",
+ "crabboy-core 0.1.0",
  "eframe",
  "egui",
  "minifb",
@@ -913,6 +919,14 @@ dependencies = [
  "ringbuf",
  "serde",
  "toml",
+]
+
+[[package]]
+name = "crabboy-wasm"
+version = "0.1.0"
+dependencies = [
+ "crabboy-core 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasm-bindgen",
 ]
 
 [[package]]
