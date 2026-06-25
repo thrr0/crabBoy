@@ -18,7 +18,6 @@ pub struct GameBoy {
     cpu: CPU,
     ppu: PPU,
     apu: APU,
-    game_path: String,
 }
 
 impl GameBoy {
@@ -27,31 +26,33 @@ impl GameBoy {
             cpu: CPU::new(),
             ppu: PPU::new(),
             apu: APU::new(),
-            game_path: String::new(),
         }
     }
 
-    /// Loads a ROM from the given path and its corresponding save file if present.
-    /// The save file is expected at the same path with a `.sav` extension;
-    /// for example, `roms/pokemon.gb` loads `roms/pokemon.sav`.
-    /// If no save file exists, the emulator starts with an empty RAM state.
-    pub fn load_rom(&mut self, game_path: String) {
-        self.game_path = game_path;
-        self.cpu.memory_bus.load_rom(&self.get_game_path());
-        self.cpu.memory_bus.load_ram(&self.get_save_path());
+    pub fn load_rom(&mut self, rom: Vec<u8>) {
+        self.cpu.memory_bus.load_rom(rom);
+    }
+
+    pub fn load_save(&mut self, sav: Vec<u8>) {
+        self.cpu.memory_bus.load_ram(sav);
+    }
+
+    pub fn is_save_dirty(&self) -> bool {
+        self.cpu.memory_bus.ram_dirty
+    }
+
+    pub fn clear_save_dirty(&mut self) {
+        self.cpu.memory_bus.ram_dirty = false;
+    }
+
+    pub fn get_save_data(&mut self) -> Vec<u8> {
+        self.cpu.memory_bus.save_ram()
     }
 
     /// Advances the emulator by one CPU instruction.
     /// Returns `true` when a full frame (160x144 pixels) has been rendered and is ready to display.
     /// When `true` is returned, call `framebuffer()` and `drain_audio()` to retrieve the output.
-    /// If external RAM was modified since the last call, the save file is written to disk automatically.
     pub fn step(&mut self) -> bool {
-        if self.cpu.memory_bus.ram_dirty {
-            if !self.cpu.memory_bus.save_ram(&self.get_save_path()) {
-                eprintln!(".sav not written");
-            }
-            self.cpu.memory_bus.ram_dirty = false;
-        }
         let cycles = self.cpu.step();
         self.ppu.step(&mut self.cpu.memory_bus, cycles);
         self.apu.step(&mut self.cpu.memory_bus, cycles);
@@ -89,14 +90,6 @@ impl GameBoy {
             Select => self.cpu.memory_bus.joypad.select = is_pressed,
             Start => self.cpu.memory_bus.joypad.start = is_pressed,
         }
-    }
-
-    fn get_game_path(&self) -> String {
-        self.game_path.clone()
-    }
-
-    fn get_save_path(&self) -> String {
-        self.game_path.replace(".gb", ".sav")
     }
 }
 

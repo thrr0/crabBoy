@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    fs,
+    time::{Duration, Instant},
+};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use crabboy_core::gameboy::{Buttons, GameBoy};
@@ -46,11 +49,25 @@ fn main() {
         .add_filter("Game Boy ROM", &["gb", "gbc"])
         .pick_file();
 
-    if let Some(path) = path {
-        gameboy.load_rom(path.to_string_lossy().to_string());
+    let save_path;
+
+    if let Some(rom_path) = path {
+        if let Ok(rom) = fs::read(&rom_path) {
+            save_path = rom_path
+                .to_string_lossy()
+                .to_string()
+                .replace(".gb", ".sav");
+            gameboy.load_rom(rom);
+            if let Ok(sav) = fs::read(&save_path) {
+                gameboy.load_save(sav);
+            }
+        } else {
+            return;
+        }
     } else {
         return;
     }
+
     let frame_duration = Duration::from_nanos(16_666_667);
     // let frame_duration = Duration::from_nanos(8_333_332);
     // let frame_duration = Duration::from_nanos(512_222_223);
@@ -58,15 +75,6 @@ fn main() {
     let mut last_frame = Instant::now();
 
     loop {
-        gameboy.set_button(Buttons::Up, window.is_key_down(Key::W));
-        gameboy.set_button(Buttons::Down, window.is_key_down(Key::S));
-        gameboy.set_button(Buttons::Left, window.is_key_down(Key::A));
-        gameboy.set_button(Buttons::Right, window.is_key_down(Key::D));
-        gameboy.set_button(Buttons::A, window.is_key_down(Key::Period));
-        gameboy.set_button(Buttons::B, window.is_key_down(Key::Comma));
-        gameboy.set_button(Buttons::Select, window.is_key_down(Key::Backspace));
-        gameboy.set_button(Buttons::Start, window.is_key_down(Key::Enter));
-
         if gameboy.step() {
             let video_buffer: Vec<u32> = gameboy
                 .framebuffer()
@@ -82,6 +90,23 @@ fn main() {
                 let _ = prod.try_push(sample);
             }
 
+            gameboy.set_button(Buttons::Up, window.is_key_down(Key::W));
+            gameboy.set_button(Buttons::Down, window.is_key_down(Key::S));
+            gameboy.set_button(Buttons::Left, window.is_key_down(Key::A));
+            gameboy.set_button(Buttons::Right, window.is_key_down(Key::D));
+            gameboy.set_button(Buttons::A, window.is_key_down(Key::Period));
+            gameboy.set_button(Buttons::B, window.is_key_down(Key::Comma));
+            gameboy.set_button(Buttons::Select, window.is_key_down(Key::Backspace));
+            gameboy.set_button(Buttons::Start, window.is_key_down(Key::Enter));
+
+            if gameboy.is_save_dirty() {
+                if let Ok(_) = fs::write(&save_path, gameboy.get_save_data()) {
+                    eprintln!(".sav succesfully written");
+                    gameboy.clear_save_dirty();
+                } else {
+                    eprintln!("error writing .sav");
+                }
+            }
             // frame timing
             let elapsed = last_frame.elapsed();
             if elapsed < frame_duration {
