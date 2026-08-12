@@ -3,8 +3,9 @@ use crate::{apu::APU, cpu::CPU, ppu::PPU};
 /// Main Game Boy (DMG) emulator. Encapsulates the CPU, PPU, and APU.
 ///
 /// ```no_run
+///use crabboy_core::gameboy::{GameBoy, Buttons};
 /// let mut gb = GameBoy::new();
-/// gb.load_rom("roms/tetris.gb".to_string());
+/// gb.load_rom(std::fs::read("roms/tetris.gb").unwrap());
 ///
 /// loop {
 ///     if gb.step() {

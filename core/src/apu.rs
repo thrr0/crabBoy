@@ -1,7 +1,6 @@
-use crate::memory::{self, MemoryBus};
+use crate::memory::MemoryBus;
 
 pub struct APU {
-    active: bool,
     divider: u64, // cpu works at 4Mhz and sample rate is 44.1Khz (4MHz / 44.1KHz = ~95)
     l_master: u8,
     r_master: u8,
@@ -18,7 +17,6 @@ pub struct APU {
 impl APU {
     pub fn new() -> APU {
         APU {
-            active: false,
             divider: 0,
             l_master: 0,
             r_master: 0,

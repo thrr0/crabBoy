@@ -17,9 +17,6 @@ impl GameBoyWasm {
         let inner = GameBoy::new();
         GameBoyWasm { inner }
     }
-    pub fn test(&self) -> bool {
-        true
-    }
     pub fn load_rom(&mut self, rom: &[u8]) {
         self.inner.load_rom(rom.to_vec());
     }
