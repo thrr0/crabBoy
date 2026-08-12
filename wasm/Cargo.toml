@@ -7,5 +7,7 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-crabboy-core = "0.1.0"
+crabboy-core = {path = "../core" }
+console_error_panic_hook = "0.1"
+web-sys = { version = "0.3", features = ["console"] }
 wasm-bindgen = "0.2"

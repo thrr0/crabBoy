@@ -237,7 +237,7 @@ impl MemoryBus {
     pub fn load_rom(&mut self, rom: Vec<u8>) {
         self.rom = rom;
 
-        eprintln!("mbc type;: {:#04x}", self.rom[0x0147]);
+        // eprintln!("mbc type;: {:#04x}", self.rom[0x0147]);
         self.mbc_type = self.rom[0x0147];
 
         let cartridge_ram_size = match self.rom[0x0149] {
@@ -266,7 +266,7 @@ impl MemoryBus {
             arr.copy_from_slice(&BOOT_ROM[..256]);
             self.boot_rom = Some(arr);
             self.boot_rom_active = true;
-            eprintln!("boot rom loaded");
+            // eprintln!("boot rom loaded");
         }
         // TO DO: gbc and both modes handle
 
@@ -277,7 +277,7 @@ impl MemoryBus {
         if sav.len() == self.ram.len() {
             self.ram = sav;
         } else {
-            eprintln!(".sav length is wrong!!");
+            // eprintln!(".sav length is wrong!!");
         }
     }
 
